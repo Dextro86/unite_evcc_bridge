@@ -1,0 +1,186 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your Unite EVCC Bridge",
+        "description": "Enter the charger's IP address. Modbus TCP must be enabled on the charger.",
+        "data": {
+          "name": "Name",
+          "host": "IP address",
+          "port": "Port",
+          "unit_id": "Modbus unit ID"
+        }
+      },
+      "reconfigure": {
+        "title": "Change connection",
+        "description": "Update the charger's connection details. Modbus TCP must be enabled on the charger.",
+        "data": {
+          "host": "IP address",
+          "port": "Port",
+          "unit_id": "Modbus unit ID"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the charger. Check the IP address, port and that Modbus TCP is enabled.",
+      "unknown": "Unexpected error while connecting."
+    },
+    "abort": {
+      "already_configured": "This charger is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "charger_state": {
+        "name": "Charger state",
+        "state": {
+          "idle": "Idle",
+          "connected": "Connected",
+          "charging": "Charging",
+          "phase_mismatch": "Phase mismatch",
+          "recovery": "Recovery",
+          "restarting": "Restarting",
+          "disconnected": "Disconnected",
+          "fault": "Fault"
+        }
+      },
+      "iec61851_status": {
+        "name": "evcc status"
+      },
+      "active_power": {
+        "name": "Power"
+      },
+      "energy_total": {
+        "name": "Total energy"
+      },
+      "session_energy": {
+        "name": "Session energy"
+      },
+      "session_duration": {
+        "name": "Session duration"
+      },
+      "current_l1": {
+        "name": "Current L1"
+      },
+      "current_l2": {
+        "name": "Current L2"
+      },
+      "current_l3": {
+        "name": "Current L3"
+      },
+      "voltage_l1": {
+        "name": "Voltage L1"
+      },
+      "voltage_l2": {
+        "name": "Voltage L2"
+      },
+      "voltage_l3": {
+        "name": "Voltage L3"
+      },
+      "requested_phase": {
+        "name": "Phase"
+      },
+      "hardware_current_limit": {
+        "name": "Hardware current limit"
+      },
+      "register_404": {
+        "name": "Register 404"
+      },
+      "register_405": {
+        "name": "Register 405"
+      },
+      "phase_recovery_status": {
+        "name": "Phase recovery status"
+      },
+      "phase_recovery_remaining": {
+        "name": "Phase recovery remaining"
+      },
+      "last_recovery": {
+        "name": "Last phase recovery"
+      },
+      "last_restart": {
+        "name": "Last restart"
+      }
+    },
+    "binary_sensor": {
+      "connection": {
+        "name": "Connection"
+      },
+      "phase_mismatch": {
+        "name": "Phase mismatch"
+      }
+    },
+    "switch": {
+      "charging_enabled": {
+        "name": "Charging"
+      }
+    },
+    "number": {
+      "maximum_current": {
+        "name": "Charge current"
+      }
+    },
+    "button": {
+      "restart": {
+        "name": "Restart"
+      }
+    },
+    "select": {
+      "phase_mode": {
+        "name": "Phase"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "menu_options": {
+          "charge": "Charging",
+          "advanced": "Advanced",
+          "reboot": "Restart (web UI)",
+          "save": "Save & close",
+          "connection": "Connection"
+        }
+      },
+      "charge": {
+        "title": "Charging",
+        "data": {
+          "max_current": "Maximum charge current (A)",
+          "phase_recovery_enabled": "Enable 1→3 phase recovery",
+          "phase_recovery_observe": "1→3 observation time (s)",
+          "phase_recovery_dwell": "1→3 recovery time (s)"
+        }
+      },
+      "advanced": {
+        "title": "Advanced",
+        "data": {
+          "poll_interval": "Polling interval (s)",
+          "failsafe_current": "Failsafe current (A)",
+          "failsafe_timeout": "Failsafe timeout (s)"
+        }
+      },
+      "reboot": {
+        "title": "Restart (web UI)",
+        "data": {
+          "rest_enabled": "Enable web UI restart",
+          "rest_username": "Web UI username",
+          "rest_password": "Web UI password"
+        }
+      },
+      "connection": {
+        "title": "Connection",
+        "data": {
+          "host": "IP address",
+          "port": "Port",
+          "unit_id": "Modbus unit ID"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid web UI username or password.",
+      "rest_cannot_connect": "Cannot reach the charger's web UI. Check the IP address and web UI credentials.",
+      "unknown": "Unexpected error while connecting."
+    }
+  }
+}

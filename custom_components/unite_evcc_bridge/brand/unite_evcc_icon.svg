@@ -1,0 +1,42 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(0 -42)">
+    <path d="M128 232 L256 136 L384 232 V384 H320 V296 H192 V384 H128 Z"
+          stroke="#7EC8FF"
+          stroke-width="14"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"/>
+
+    <rect x="208" y="180" width="96" height="180" rx="48"
+          fill="#111827"/>
+
+    <rect x="212" y="184" width="88" height="172" rx="44"
+          fill="url(#grad)"/>
+
+    <circle cx="256" cy="308" r="30"
+            stroke="#7EC8FF"
+            stroke-width="8"
+            fill="none"/>
+
+    <circle cx="256" cy="308" r="14"
+            fill="#0B1220"/>
+  </g>
+
+  <text x="256" y="444"
+        text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="76"
+        font-weight="800"
+        letter-spacing="5"
+        fill="#7EC8FF"
+        stroke="#0B1220"
+        stroke-width="8"
+        paint-order="stroke fill">EVCC</text>
+
+  <defs>
+    <linearGradient id="grad" x1="212" y1="184" x2="300" y2="356">
+      <stop stop-color="#2A3B52"/>
+      <stop offset="1" stop-color="#0E1624"/>
+    </linearGradient>
+  </defs>
+</svg>

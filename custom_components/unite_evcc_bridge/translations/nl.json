@@ -1,0 +1,186 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Verbind met je Unite EVCC Bridge",
+        "description": "Voer het IP-adres van de lader in. Modbus TCP moet op de lader ingeschakeld zijn.",
+        "data": {
+          "name": "Naam",
+          "host": "IP-adres",
+          "port": "Poort",
+          "unit_id": "Modbus unit-ID"
+        }
+      },
+      "reconfigure": {
+        "title": "Verbinding wijzigen",
+        "description": "Wijzig de verbindingsgegevens van de lader. Modbus TCP moet op de lader ingeschakeld zijn.",
+        "data": {
+          "host": "IP-adres",
+          "port": "Poort",
+          "unit_id": "Modbus unit-ID"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kan geen verbinding maken met de lader. Controleer het IP-adres, de poort en of Modbus TCP aanstaat.",
+      "unknown": "Onverwachte fout bij het verbinden."
+    },
+    "abort": {
+      "already_configured": "Deze lader is al geconfigureerd."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "charger_state": {
+        "name": "Laderstatus",
+        "state": {
+          "idle": "Geen auto",
+          "connected": "Verbonden",
+          "charging": "Laadt",
+          "phase_mismatch": "Fase-mismatch",
+          "recovery": "Faseherstel",
+          "restarting": "Herstart",
+          "disconnected": "Offline",
+          "fault": "Storing"
+        }
+      },
+      "iec61851_status": {
+        "name": "evcc-status"
+      },
+      "active_power": {
+        "name": "Vermogen"
+      },
+      "energy_total": {
+        "name": "Totale energie"
+      },
+      "session_energy": {
+        "name": "Sessie-energie"
+      },
+      "session_duration": {
+        "name": "Sessieduur"
+      },
+      "current_l1": {
+        "name": "Stroom L1"
+      },
+      "current_l2": {
+        "name": "Stroom L2"
+      },
+      "current_l3": {
+        "name": "Stroom L3"
+      },
+      "voltage_l1": {
+        "name": "Spanning L1"
+      },
+      "voltage_l2": {
+        "name": "Spanning L2"
+      },
+      "voltage_l3": {
+        "name": "Spanning L3"
+      },
+      "requested_phase": {
+        "name": "Fase"
+      },
+      "hardware_current_limit": {
+        "name": "Hardware laadstroomlimiet"
+      },
+      "register_404": {
+        "name": "Register 404"
+      },
+      "register_405": {
+        "name": "Register 405"
+      },
+      "phase_recovery_status": {
+        "name": "Fase-herstel status"
+      },
+      "phase_recovery_remaining": {
+        "name": "Fase-herstel resterend"
+      },
+      "last_recovery": {
+        "name": "Laatste faseherstel"
+      },
+      "last_restart": {
+        "name": "Laatste herstart"
+      }
+    },
+    "binary_sensor": {
+      "connection": {
+        "name": "Verbinding"
+      },
+      "phase_mismatch": {
+        "name": "Fase-mismatch"
+      }
+    },
+    "switch": {
+      "charging_enabled": {
+        "name": "Laden"
+      }
+    },
+    "number": {
+      "maximum_current": {
+        "name": "Laadstroom"
+      }
+    },
+    "button": {
+      "restart": {
+        "name": "Herstart"
+      }
+    },
+    "select": {
+      "phase_mode": {
+        "name": "Fase"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Instellingen",
+        "menu_options": {
+          "charge": "Laden",
+          "advanced": "Geavanceerd",
+          "reboot": "Herstarten (web-UI)",
+          "save": "Opslaan en sluiten",
+          "connection": "Verbinding"
+        }
+      },
+      "charge": {
+        "title": "Laden",
+        "data": {
+          "max_current": "Maximale laadstroom (A)",
+          "phase_recovery_enabled": "1→3 faseherstel inschakelen",
+          "phase_recovery_observe": "Observatietijd 1→3 (s)",
+          "phase_recovery_dwell": "Hersteltijd 1→3 (s)"
+        }
+      },
+      "advanced": {
+        "title": "Geavanceerd",
+        "data": {
+          "poll_interval": "Polling-interval (s)",
+          "failsafe_current": "Failsafe-stroom (A)",
+          "failsafe_timeout": "Failsafe-timeout (s)"
+        }
+      },
+      "reboot": {
+        "title": "Herstarten (web-UI)",
+        "data": {
+          "rest_enabled": "Herstart via web-UI inschakelen",
+          "rest_username": "Web-UI gebruikersnaam",
+          "rest_password": "Web-UI wachtwoord"
+        }
+      },
+      "connection": {
+        "title": "Verbinding",
+        "data": {
+          "host": "IP-adres",
+          "port": "Poort",
+          "unit_id": "Modbus unit-ID"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ongeldige web-UI gebruikersnaam of wachtwoord.",
+      "rest_cannot_connect": "Kan de web-UI van de lader niet bereiken. Controleer het IP-adres en de web-UI gegevens.",
+      "unknown": "Onverwachte fout bij het verbinden."
+    }
+  }
+}
