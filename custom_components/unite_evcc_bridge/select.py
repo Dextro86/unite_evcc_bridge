@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from homeassistant.components.select import SelectEntity
+from homeassistant.components.select import ENTITY_ID_FORMAT, SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -24,7 +24,7 @@ class WebastoPhaseModeSelect(WebastoEvccEntity, SelectEntity):
     _attr_options = ["1", "3"]
 
     def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id, "phase_mode")
+        super().__init__(coordinator, entry_id, "phase_mode", ENTITY_ID_FORMAT)
 
     @property
     def current_option(self) -> str | None:

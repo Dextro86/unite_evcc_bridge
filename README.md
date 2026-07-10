@@ -141,29 +141,47 @@ the hardware current limit and the phase recovery status sensors.
 > **soft reset** of the charger, which you can trigger from the **Restart** button
 > (enable *Restart (web UI)* in the options).
 
-## EVCC Home Assistant charger entities
+## Use in evcc
 
-Use these entities in EVCC (referred to here by their display name):
+This integration exposes the charger as an
+[evcc Home Assistant charger](https://docs.evcc.io/en/docs/devices/chargers#home-assistant).
+The entity IDs are **fixed and language-independent** (they don't change with your
+Home Assistant language), so you can copy this straight into your `evcc.yaml`:
 
-| EVCC field | Entity (by name) |
+```yaml
+chargers:
+  - name: unite
+    type: template
+    template: homeassistant
+    baseurl: http://homeassistant.local:8123   # or http://<HA-IP>:8123
+    token: <long-lived-access-token>            # HA -> profile -> Long-lived access tokens
+    status:     sensor.unite_evcc_bridge_iec61851_status
+    enabled:    switch.unite_evcc_bridge_charging_enabled
+    enable:     switch.unite_evcc_bridge_charging_enabled
+    maxcurrent: number.unite_evcc_bridge_maximum_current
+    # optional telemetry:
+    power:      sensor.unite_evcc_bridge_active_power
+    energy:     sensor.unite_evcc_bridge_energy_total
+    # optional 1p/3p phase switching:
+    phases1p3p: select.unite_evcc_bridge_phase_mode
+```
+
+The IDs above are what a single charger gets. If you added a **second** charger,
+Home Assistant appends a suffix (`..._2`) — check yours under
+*Developer Tools → States* (filter `unite_evcc_bridge`).
+
+Full entity reference:
+
+| evcc field | Entity ID |
 |---|---|
-| status | `sensor` **evcc status** |
-| enabled | `switch` **Charging** |
-| enable | `switch` **Charging** |
-| maxcurrent | `number` **Charge current** |
-| power | `sensor` **Power** |
-| energy | `sensor` **Total energy** |
-| currentL1 / L2 / L3 | `sensor` **Current L1 / L2 / L3** |
-| voltageL1 / L2 / L3 | `sensor` **Voltage L1 / L2 / L3** |
-| phases1p3p | `select` **Phase** |
-
-> **Finding the exact `entity_id`:** EVCC needs entity IDs, and Home Assistant
-> generates those from the entity's display name **in your HA language** — so on a
-> Dutch install the `status` entity is `sensor.<device>_evcc_status`, `Charging`
-> becomes `switch.<device>_laden`, `Charge current` becomes
-> `number.<device>_laadstroom`, and `Phase` becomes `select.<device>_fase`. Look up
-> the real IDs under *Developer Tools → States* (filter on your device name) and
-> paste those into EVCC.
+| status | `sensor.unite_evcc_bridge_iec61851_status` |
+| enabled / enable | `switch.unite_evcc_bridge_charging_enabled` |
+| maxcurrent | `number.unite_evcc_bridge_maximum_current` |
+| power | `sensor.unite_evcc_bridge_active_power` |
+| energy | `sensor.unite_evcc_bridge_energy_total` |
+| currentL1 / L2 / L3 | `sensor.unite_evcc_bridge_current_l1` / `_l2` / `_l3` |
+| voltageL1 / L2 / L3 | `sensor.unite_evcc_bridge_voltage_l1` / `_l2` / `_l3` |
+| phases1p3p | `select.unite_evcc_bridge_phase_mode` |
 
 ## Register choices
 

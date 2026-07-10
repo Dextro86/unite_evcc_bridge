@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.components.binary_sensor import (
+    ENTITY_ID_FORMAT,
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
@@ -34,7 +38,7 @@ class UniteEvccConnectionSensor(WebastoEvccEntity, BinarySensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id, "connection")
+        super().__init__(coordinator, entry_id, "connection", ENTITY_ID_FORMAT)
 
     @property
     def available(self) -> bool:
@@ -68,7 +72,7 @@ class UniteEvccPhaseMismatchSensor(WebastoEvccEntity, BinarySensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id, "phase_mismatch")
+        super().__init__(coordinator, entry_id, "phase_mismatch", ENTITY_ID_FORMAT)
 
     @property
     def is_on(self) -> bool:

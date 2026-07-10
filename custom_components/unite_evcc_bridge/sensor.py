@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Callable
 
 from homeassistant.components.sensor import (
+    ENTITY_ID_FORMAT,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -234,7 +235,7 @@ class WebastoEvccSensor(WebastoEvccEntity, SensorEntity):
         entry_id: str,
         description: BridgeSensorDescription,
     ) -> None:
-        super().__init__(coordinator, entry_id, description.key)
+        super().__init__(coordinator, entry_id, description.key, ENTITY_ID_FORMAT)
         self.entity_description = description
         if description.options is not None:
             self._attr_options = description.options
