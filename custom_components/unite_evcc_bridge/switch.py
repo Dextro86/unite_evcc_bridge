@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from homeassistant.components.switch import (
-    ENTITY_ID_FORMAT,
-    SwitchDeviceClass,
-    SwitchEntity,
-)
+from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -28,7 +24,7 @@ class WebastoChargingEnabledSwitch(WebastoEvccEntity, SwitchEntity):
     _attr_device_class = SwitchDeviceClass.SWITCH
 
     def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id, "charging_enabled", ENTITY_ID_FORMAT)
+        super().__init__(coordinator, entry_id, "charging_enabled")
 
     @property
     def is_on(self) -> bool | None:

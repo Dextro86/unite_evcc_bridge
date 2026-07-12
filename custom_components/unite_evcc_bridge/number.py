@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-from homeassistant.components.number import (
-    ENTITY_ID_FORMAT,
-    NumberDeviceClass,
-    NumberEntity,
-    NumberMode,
-)
+from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfElectricCurrent
 from homeassistant.core import HomeAssistant
@@ -34,7 +29,7 @@ class WebastoMaximumCurrentNumber(WebastoEvccEntity, NumberEntity):
     _attr_mode = NumberMode.SLIDER
 
     def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
-        super().__init__(coordinator, entry_id, "maximum_current", ENTITY_ID_FORMAT)
+        super().__init__(coordinator, entry_id, "maximum_current")
         self._attr_native_max_value = coordinator.max_current
 
     @property

@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import time
 
-from homeassistant.components.button import (
-    ENTITY_ID_FORMAT,
-    ButtonDeviceClass,
-    ButtonEntity,
-)
+from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, EntityCategory
 from homeassistant.core import HomeAssistant
@@ -50,7 +46,7 @@ class WebastoRestartButton(WebastoEvccEntity, ButtonEntity):
         coordinator: WebastoEvccCoordinator,
         entry: ConfigEntry,
     ) -> None:
-        super().__init__(coordinator, entry.entry_id, "restart", ENTITY_ID_FORMAT)
+        super().__init__(coordinator, entry.entry_id, "restart")
         self._entry = entry
         self._last_press = 0.0
 
