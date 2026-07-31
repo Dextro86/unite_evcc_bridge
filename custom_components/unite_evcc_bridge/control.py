@@ -48,14 +48,29 @@ def derive_state(
     return STATE_IDLE
 
 
-def phase_mismatch(data: ChargerSnapshot) -> bool:
-    if data.charging_state != 1:
-        return False
+def is_three_phase_install(configured: str | None, reported_404: int | None) -> bool:
+    """Whether the wallbox is wired for 3 phases.
 
-    configured_3p = data.phase_mode_raw == 1
-    measured_1p = (
+    Register 404 alone is ambiguous: 0 means both "genuinely 1-phase installed"
+    and "3-phase charger stuck at 1-phase". An explicit user setting wins; 404
+    only provides the default before the user has answered.
+    """
+    if configured is not None:
+        return configured == "3"
+    return reported_404 != 0
+
+
+def phase_mismatch(data: ChargerSnapshot, requested_3p: bool) -> bool:
+    """True when 3-phase was actively requested but the car draws only 1.
+
+    Gated on an explicit evcc 3-phase request, NOT on register 405: 405 rests at
+    its 3-phase default on a 3-phase install, so a 1-phase car would otherwise
+    look like a permanent mismatch.
+    """
+    if not requested_3p or data.charging_state != 1:
+        return False
+    return (
         (data.current_l1_a or 0.0) >= 3.0
         and (data.current_l2_a or 0.0) < 2.0
         and (data.current_l3_a or 0.0) < 2.0
     )
-    return configured_3p and measured_1p

@@ -31,5 +31,14 @@ DEFAULT_PHASE_RECOVERY_DWELL_S = 121
 DEFAULT_REST_ENABLED = False
 DEFAULT_REST_USERNAME = "admin"
 REST_RESTART_COOLDOWN_S = 300
+PHASE_RESTORE_COOLDOWN_S = 60  # blocks re-press while the 0->1 toggle runs
+
+# How the wallbox is physically wired. Register 404 alone cannot tell a genuine
+# 1-phase installation apart from a 3-phase charger stuck at 1-phase, so the
+# phase-config restore is gated on this explicit setting.
+CONF_GRID_PHASES = "grid_phases"
+GRID_PHASES_1 = "1"
+GRID_PHASES_3 = "3"
+GRID_PHASES = (GRID_PHASES_1, GRID_PHASES_3)
 REST_TIMEOUT_S = 15
 HEARTBEAT_ALIVE_VALUE = 1

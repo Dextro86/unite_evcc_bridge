@@ -61,6 +61,10 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self.phase_recovery_dwell = phase_recovery_dwell
         self.resume_current = DEFAULT_RESUME_CURRENT
         self.requested_phase: str | None = None
+        # requested_phase is seeded from the charger's resting phase (405 defaults
+        # to 3P on a 3P install), so it is not proof that evcc asked for 3-phase.
+        # Only an explicit select_option counts for the phase-mismatch check.
+        self._phase_explicitly_requested: bool = False
         self.current_intent: int | None = None
         self.enabled_intent: bool | None = None
         self.recovery_status = _RECOVERY_IDLE
@@ -178,7 +182,8 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
 
     def phase_mismatch(self, data: ChargerSnapshot | None = None) -> bool:
         snapshot = data if data is not None else self.data
-        return bool(snapshot and snapshot.available and phase_mismatch(snapshot))
+        requested_3p = self._phase_explicitly_requested and self.requested_phase == "3"
+        return bool(snapshot and snapshot.available and phase_mismatch(snapshot, requested_3p))
 
     async def async_set_current(self, value: float) -> None:
         requested = normalize_current_a(value, self.max_current)
@@ -219,6 +224,7 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         if option not in {"1", "3"}:
             raise ValueError("Phase option must be '1' or '3'")
         self.requested_phase = option
+        self._phase_explicitly_requested = True
         if option == "1":
             self._recovery_attempted = False
             self._cancel_recovery()

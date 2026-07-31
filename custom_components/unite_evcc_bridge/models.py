@@ -26,6 +26,8 @@ class ChargerSnapshot:
     energy_total_kwh: float | None = None
     session_energy_kwh: float | None = None
     session_duration_s: int | None = None
+    # RFID tag of the active session; None when unavailable or charging freely.
+    session_rfid: str | None = None
     current_l1_a: float | None = None
     current_l2_a: float | None = None
     current_l3_a: float | None = None

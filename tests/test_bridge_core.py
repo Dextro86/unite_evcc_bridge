@@ -3,7 +3,11 @@ import asyncio
 import aiohttp
 import pytest
 
-from custom_components.unite_evcc_bridge.control import derive_state, phase_mismatch
+from custom_components.unite_evcc_bridge.control import (
+    derive_state,
+    is_three_phase_install,
+    phase_mismatch,
+)
 from custom_components.unite_evcc_bridge.models import ChargerSnapshot, normalize_current_a
 from custom_components.unite_evcc_bridge.modbus import (
     SESSION_BASE,
@@ -20,6 +24,7 @@ from custom_components.unite_evcc_bridge.rest_client import (
     UniteRestEndpointMissing,
     UniteRestError,
     async_restart_charger,
+    async_restore_three_phase,
 )
 
 
@@ -77,7 +82,7 @@ def test_derive_state_priority() -> None:
     assert derive_state(**{**base, "vehicle_connected": False, "charging": False}) == "idle"
 
 
-def test_phase_mismatch_detects_3p_configured_but_measured_1p() -> None:
+def test_phase_mismatch_detects_3p_requested_but_measured_1p() -> None:
     data = ChargerSnapshot(
         available=True,
         charging_state=1,
@@ -86,7 +91,22 @@ def test_phase_mismatch_detects_3p_configured_but_measured_1p() -> None:
         current_l2_a=0.2,
         current_l3_a=0.3,
     )
-    assert phase_mismatch(data) is True
+    assert phase_mismatch(data, requested_3p=True) is True
+
+
+def test_phase_mismatch_ignores_1phase_car_without_3p_request() -> None:
+    # The false positive we fixed: 405 rests at its 3-phase default, so a
+    # 1-phase car draws only L1. Without an explicit 3-phase request that must
+    # not be flagged.
+    data = ChargerSnapshot(
+        available=True,
+        charging_state=1,
+        phase_mode_raw=1,
+        current_l1_a=15.0,
+        current_l2_a=0.2,
+        current_l3_a=0.3,
+    )
+    assert phase_mismatch(data, requested_3p=False) is False
 
 
 def test_phase_mismatch_avoids_transient_or_non_charging_false_positives() -> None:
@@ -98,7 +118,8 @@ def test_phase_mismatch_avoids_transient_or_non_charging_false_positives() -> No
             current_l1_a=15.0,
             current_l2_a=0.2,
             current_l3_a=0.3,
-        )
+        ),
+        requested_3p=True,
     ) is False
     assert phase_mismatch(
         ChargerSnapshot(
@@ -108,7 +129,8 @@ def test_phase_mismatch_avoids_transient_or_non_charging_false_positives() -> No
             current_l1_a=15.0,
             current_l2_a=3.1,
             current_l3_a=3.2,
-        )
+        ),
+        requested_3p=True,
     ) is False
 
 
@@ -222,7 +244,7 @@ def test_restart_falls_back_to_webconfig_on_json_404(monkeypatch) -> None:
     session = RestartSession({4443}, restart_status=404, webconfig_body=_LOGIN_FORM)
     route = asyncio.run(async_restart_charger(session, "10.0.0.5", "admin", "x"))
     assert route == "webconfig"
-    assert called == ["http://10.0.0.5"]  # webconfig soft-reset actually fired
+    assert called == ["http://10.0.0.5"]  # webconfig reset actually fired
     assert session.restart_calls  # only after the JSON restart was attempted
 
 
@@ -250,3 +272,112 @@ def test_json_restart_404_raises_endpoint_missing() -> None:
     client = UniteRestClient("10.0.0.5", "admin", "x", session, port=443)
     with pytest.raises(UniteRestEndpointMissing):
         asyncio.run(client.restart_system())
+
+
+# --- phase-config restore (currentLimiterPhase 0->1) ------------------------
+_PHASE_FIELD = "installationSettings.currentLimiterPhase"
+
+
+class BridgeConfigSession:
+    """JSON session: login ok, queued statuses for /configuration-updates.
+    Records posted JSON bodies to assert the payload shape."""
+
+    def __init__(self, statuses):
+        self._statuses = list(statuses)
+        self.bodies = []
+
+    def request(self, method, url, **kwargs):
+        if url.endswith("/api/login"):
+            return _Resp(201, '{"access_token":"tok"}')
+        self.bodies.append(kwargs.get("json"))
+        return _Resp(self._statuses.pop(0))
+
+
+def test_json_set_phase_accepts_plain_int() -> None:
+    s = BridgeConfigSession([200])
+    c = UniteRestClient("10.0.0.5", "admin", "x", s, port=443)
+    asyncio.run(c.set_current_limiter_phase(0))
+    assert s.bodies == [[{"fieldKey": _PHASE_FIELD, "value": 0}]]
+
+
+def test_json_set_phase_falls_back_to_nested_on_422() -> None:
+    s = BridgeConfigSession([422, 200])
+    c = UniteRestClient("10.0.0.5", "admin", "x", s, port=443)
+    asyncio.run(c.set_current_limiter_phase(1))
+    assert s.bodies[0] == [{"fieldKey": _PHASE_FIELD, "value": 1}]
+    assert s.bodies[1] == [
+        {"fieldKey": _PHASE_FIELD, "value": {"value": 1, "valueType": "selection"}}
+    ]
+
+
+def test_php_selected_option_reads_current_limiter_value() -> None:
+    html = (
+        '<select name="currentLimiterValue">'
+        '<option value="6">6</option>'
+        '<option value="16" selected>16</option>'
+        '</select>'
+    )
+    assert UnitePhpRestClient._selected_option(html, "currentLimiterValue") == "16"
+    assert UnitePhpRestClient._selected_option(html, "nope") is None
+
+
+class BridgeRestoreSession:
+    def __init__(self, json_ports, *, config_status=200, webconfig_body=""):
+        self.json_ports = set(json_ports)
+        self.config_status = config_status
+        self.webconfig_body = webconfig_body
+        self.config_posts = []
+
+    def post(self, url, **kwargs):  # _probe_json_api
+        if any(f":{p}/" in url for p in self.json_ports):
+            return _Resp(403)
+        return _Raise()
+
+    def get(self, url, **kwargs):  # _has_webconfig
+        return _Resp(200, self.webconfig_body)
+
+    def request(self, method, url, **kwargs):  # UniteRestClient login + config
+        if url.endswith("/api/login"):
+            return _Resp(201, '{"access_token":"tok"}')
+        if "configuration-updates" in url:
+            self.config_posts.append(kwargs.get("json"))
+            return _Resp(self.config_status)
+        return _Raise()
+
+
+def test_restore_three_phase_toggles_via_json() -> None:
+    session = BridgeRestoreSession({443})
+    route = asyncio.run(
+        async_restore_three_phase(session, "10.0.0.5", "admin", "x", settle_s=0)
+    )
+    assert route == "json:443"
+    assert session.config_posts == [
+        [{"fieldKey": _PHASE_FIELD, "value": 0}],
+        [{"fieldKey": _PHASE_FIELD, "value": 1}],
+    ]
+
+
+def test_restore_three_phase_falls_back_to_webconfig(monkeypatch) -> None:
+    calls = []
+
+    async def fake_php_set(self, value):
+        calls.append(value)
+
+    monkeypatch.setattr(UnitePhpRestClient, "set_current_limiter_phase", fake_php_set)
+    session = BridgeRestoreSession({4443}, config_status=404, webconfig_body=_LOGIN_FORM)
+    route = asyncio.run(
+        async_restore_three_phase(session, "10.0.0.5", "admin", "x", settle_s=0)
+    )
+    assert route == "webconfig"
+    assert calls == [0, 1]
+
+
+# --- 3-phase restore gating (1-phase installs must not get the button) ------
+def test_is_three_phase_install() -> None:
+    # explicit user setting wins in both directions
+    assert is_three_phase_install("3", 0) is True   # stuck charger, user knows it is 3P
+    assert is_three_phase_install("1", 1) is False  # user says 1P -> never offer restore
+    # unset -> follow the charger's own register 404
+    assert is_three_phase_install(None, 1) is True
+    assert is_three_phase_install(None, 0) is False  # genuine 1-phase install
+    assert is_three_phase_install(None, None) is True  # unknown -> assume 3P default

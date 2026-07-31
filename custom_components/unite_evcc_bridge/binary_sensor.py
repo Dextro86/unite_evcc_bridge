@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .control import phase_mismatch
 from .coordinator import WebastoEvccCoordinator
 from .entity import WebastoEvccEntity
 
@@ -75,5 +74,6 @@ class UniteEvccPhaseMismatchSensor(WebastoEvccEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        data = self.coordinator.data
-        return bool(data and data.available and phase_mismatch(data))
+        # Routed through the coordinator so the "3-phase actually requested" gate
+        # is applied (a resting 405=3 on a 1-phase car is not a mismatch).
+        return self.coordinator.phase_mismatch()

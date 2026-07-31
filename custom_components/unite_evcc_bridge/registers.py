@@ -32,6 +32,9 @@ ACTIVE_POWER = Register("active_power", 1020, count=2)
 ENERGY_TOTAL = Register("energy_total", 1036, count=2, scale=0.1)
 SESSION_ENERGY = Register("session_energy", 1502, count=2, scale=0.001)
 SESSION_DURATION = Register("session_duration", 1508, count=2)
+# RFID tag of the active session (spec v1.9+, 2023). Read separately from the
+# session block so a failure on older firmware never breaks session energy.
+SESSION_RFID = Register("session_rfid", 1516, count=15)
 PHASE_CAPABILITY = Register("phase_capability", 404)
 
 FAILSAFE_CURRENT = Register("failsafe_current", 2000, register_type=RegisterType.HOLDING)

@@ -100,6 +100,9 @@
       },
       "last_restart": {
         "name": "Last restart"
+      },
+      "session_rfid": {
+        "name": "Session RFID tag"
       }
     },
     "binary_sensor": {
@@ -123,6 +126,9 @@
     "button": {
       "restart": {
         "name": "Restart"
+      },
+      "restore_three_phase": {
+        "name": "Restore 3-phase config"
       }
     },
     "select": {
@@ -147,6 +153,7 @@
         "title": "Charging",
         "data": {
           "max_current": "Maximum charge current (A)",
+          "grid_phases": "Charger connection",
           "phase_recovery_enabled": "Enable 1→3 phase recovery",
           "phase_recovery_observe": "1→3 observation time (s)",
           "phase_recovery_dwell": "1→3 recovery time (s)"
@@ -181,6 +188,14 @@
       "invalid_auth": "Invalid web UI username or password.",
       "rest_cannot_connect": "Cannot reach the charger's web UI. Check the IP address and web UI credentials.",
       "unknown": "Unexpected error while connecting."
+    }
+  },
+  "selector": {
+    "grid_phases": {
+      "options": {
+        "1": "Single-phase (1P)",
+        "3": "Three-phase (3P)"
+      }
     }
   }
 }

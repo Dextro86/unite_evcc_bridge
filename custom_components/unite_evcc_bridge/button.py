@@ -11,17 +11,25 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    CONF_GRID_PHASES,
     CONF_REST_ENABLED,
     CONF_REST_PASSWORD,
     CONF_REST_USERNAME,
     DEFAULT_REST_ENABLED,
     DEFAULT_REST_USERNAME,
     DOMAIN,
+    PHASE_RESTORE_COOLDOWN_S,
     REST_RESTART_COOLDOWN_S,
 )
+from .control import is_three_phase_install
 from .coordinator import WebastoEvccCoordinator
 from .entity import WebastoEvccEntity
-from .rest_client import UniteRestAuthError, UniteRestError, async_restart_charger
+from .rest_client import (
+    UniteRestAuthError,
+    UniteRestError,
+    async_restart_charger,
+    async_restore_three_phase,
+)
 
 
 async def async_setup_entry(
@@ -33,7 +41,14 @@ async def async_setup_entry(
         return
 
     coordinator: WebastoEvccCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([WebastoRestartButton(coordinator, entry)])
+    entities: list[ButtonEntity] = [WebastoRestartButton(coordinator, entry)]
+    # Only offer the 3-phase restore on a 3-phase installation: on a genuinely
+    # 1-phase wallbox register 404 legitimately reads 0, and writing a 3-phase
+    # installation config there would be wrong.
+    reported = getattr(coordinator.data, "phase_capability_raw", None)
+    if is_three_phase_install(entry.options.get(CONF_GRID_PHASES), reported):
+        entities.append(WebastoPhaseRestoreButton(coordinator, entry))
+    async_add_entities(entities)
 
 
 class WebastoRestartButton(WebastoEvccEntity, ButtonEntity):
@@ -78,3 +93,42 @@ class WebastoRestartButton(WebastoEvccEntity, ButtonEntity):
             raise HomeAssistantError(f"Could not restart charger via web UI: {err}") from err
         self.coordinator.record_rest_restart("success")
         self.coordinator.mark_rest_restart(REST_RESTART_COOLDOWN_S)
+
+
+class WebastoPhaseRestoreButton(WebastoEvccEntity, ButtonEntity):
+    """Force the installation phase config back to 3-phase via the web UI.
+
+    For the known Unite fault where the charger sticks on 1-phase (register 404
+    reads 0 while the UI still shows 3-phase) and a live 405 write no longer
+    takes. Toggles currentLimiterPhase 0->1 to re-sync it, without a reboot.
+    """
+
+    _attr_translation_key = "restore_three_phase"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: WebastoEvccCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry.entry_id, "restore_three_phase")
+        self._entry = entry
+        self._last_press = 0.0
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_press(self) -> None:
+        now = time.monotonic()
+        remaining = PHASE_RESTORE_COOLDOWN_S - (now - self._last_press)
+        if remaining > 0:
+            raise HomeAssistantError(
+                f"Phase-config restore already running. Wait {int(remaining)} seconds."
+            )
+        self._last_press = now
+        host = self._entry.options.get(CONF_HOST, self._entry.data[CONF_HOST])
+        username = self._entry.options.get(CONF_REST_USERNAME, DEFAULT_REST_USERNAME)
+        password = self._entry.options.get(CONF_REST_PASSWORD, "")
+        session = async_get_clientsession(self.hass)
+        try:
+            await async_restore_three_phase(session, host, username, password)
+        except (UniteRestAuthError, UniteRestError) as err:
+            self._last_press = 0.0  # let the user retry
+            raise HomeAssistantError(f"Could not restore 3-phase config: {err}") from err

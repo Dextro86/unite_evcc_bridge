@@ -22,6 +22,7 @@ from .registers import (
     FAILSAFE_CURRENT,
     FAILSAFE_TIMEOUT,
     PHASE_CAPABILITY,
+    SESSION_RFID,
     PHASE_SWITCH,
     Register,
     RegisterType,
@@ -102,13 +103,19 @@ class WebastoBridgeClient:
             phase_capability = await self._optional_int(PHASE_CAPABILITY)
             failsafe_current = await self._optional_int(FAILSAFE_CURRENT)
             failsafe_timeout = await self._optional_int(FAILSAFE_TIMEOUT)
+            # Only meaningful while a vehicle is connected, and absent on
+            # firmware older than spec v1.9 - hence gated and optional.
+            cable_state = int(self._decode_from_block(CABLE_STATE, telemetry, TELEMETRY_BASE))
+            session_rfid = (
+                await self._optional_string(SESSION_RFID) if cable_state >= 2 else None
+            )
 
             return ChargerSnapshot(
                 available=True,
                 charge_point_state=int(self._decode_from_block(CHARGE_POINT_STATE, telemetry, TELEMETRY_BASE)),
                 charging_state=int(self._decode_from_block(CHARGING_STATE, telemetry, TELEMETRY_BASE)),
                 equipment_state=int(self._decode_from_block(EQUIPMENT_STATE, telemetry, TELEMETRY_BASE)),
-                cable_state=int(self._decode_from_block(CABLE_STATE, telemetry, TELEMETRY_BASE)),
+                cable_state=cable_state,
                 current_limit_a=current_limit,
                 phase_mode_raw=phase_mode,
                 phase_capability_raw=phase_capability,
@@ -116,6 +123,7 @@ class WebastoBridgeClient:
                 energy_total_kwh=float(self._decode_from_block(ENERGY_TOTAL, telemetry, TELEMETRY_BASE)),
                 session_energy_kwh=float(self._decode_from_block(SESSION_ENERGY, session, SESSION_BASE)),
                 session_duration_s=int(self._decode_from_block(SESSION_DURATION, session, SESSION_BASE)),
+                session_rfid=session_rfid,
                 current_l1_a=float(self._decode_from_block(CURRENT_L1, telemetry, TELEMETRY_BASE)),
                 current_l2_a=float(self._decode_from_block(CURRENT_L2, telemetry, TELEMETRY_BASE)),
                 current_l3_a=float(self._decode_from_block(CURRENT_L3, telemetry, TELEMETRY_BASE)),
@@ -140,6 +148,16 @@ class WebastoBridgeClient:
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Optional register %s unavailable: %s", register.name, err)
             return None
+
+    async def _optional_string(self, register: Register) -> str | None:
+        """Read an ASCII string register; None when unavailable or empty."""
+        try:
+            registers = await self._read_registers(register)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Optional register %s unavailable: %s", register.name, err)
+            return None
+        raw = b"".join(int(r).to_bytes(2, "big") for r in registers)
+        return raw.decode("ascii", errors="ignore").strip("\x00 ").strip() or None
 
     async def _read_registers(self, register: Register) -> list[int]:
         return await self._read_block(register.register_type, register.address, register.count)

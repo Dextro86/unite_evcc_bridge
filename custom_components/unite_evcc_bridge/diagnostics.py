@@ -27,6 +27,7 @@ TO_REDACT = {
     "rest_password",
     "serial",
     "serial_number",
+    "session_rfid",
     "unique_id",
 }
 

@@ -168,6 +168,15 @@ SENSORS: tuple[BridgeSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator, data: data.phase_mode_raw,
     ),
+    # RFID tag of the running session. Empty when charging freely, absent on
+    # firmware older than spec v1.9. Useful for per-session billing and for evcc
+    # vehicle identification (via a custom charger).
+    BridgeSensorDescription(
+        key="session_rfid",
+        translation_key="session_rfid",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator, data: data.session_rfid,
+    ),
     BridgeSensorDescription(
         key="phase_recovery_status",
         translation_key="phase_recovery_status",

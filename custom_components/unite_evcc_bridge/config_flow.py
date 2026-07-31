@@ -15,8 +15,12 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_FAILSAFE_CURRENT,
     CONF_FAILSAFE_TIMEOUT,
+    CONF_GRID_PHASES,
     CONF_MAX_CURRENT,
     CONF_PHASE_RECOVERY_DWELL,
+    GRID_PHASES,
+    GRID_PHASES_1,
+    GRID_PHASES_3,
     CONF_PHASE_RECOVERY_ENABLED,
     CONF_PHASE_RECOVERY_OBSERVE,
     CONF_POLL_INTERVAL,
@@ -56,6 +60,16 @@ async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
             await client.read(CHARGING_STATE)
     finally:
         await client.async_close()
+
+
+def _grid_phases_selector() -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=list(GRID_PHASES),
+            translation_key="grid_phases",
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
 
 
 def _num(minv: float, maxv: float, step: float = 1, unit: str | None = None) -> selector.NumberSelector:
@@ -142,6 +156,18 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
         self._entry = config_entry
         self.options: dict[str, Any] = dict(config_entry.options)
 
+    def _default_grid_phases(self) -> str:
+        """Default the wiring question to what the charger reports (register 404).
+
+        An explicit user choice always wins, because 404 = 0 cannot distinguish a
+        1-phase install from a 3-phase charger stuck at 1-phase.
+        """
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        data = getattr(coordinator, "data", None)
+        if getattr(data, "phase_capability_raw", None) == 0:
+            return GRID_PHASES_1
+        return GRID_PHASES_3
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
             step_id="init",
@@ -178,6 +204,9 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
         schema = vol.Schema(
             {
                 vol.Required(CONF_MAX_CURRENT, default=DEFAULT_MAX_CURRENT): _num(6, 32, 1, "A"),
+                vol.Required(
+                    CONF_GRID_PHASES, default=self._default_grid_phases()
+                ): _grid_phases_selector(),
                 vol.Required(
                     CONF_PHASE_RECOVERY_ENABLED,
                     default=DEFAULT_PHASE_RECOVERY_ENABLED,
