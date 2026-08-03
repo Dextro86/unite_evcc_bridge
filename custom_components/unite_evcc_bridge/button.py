@@ -132,3 +132,7 @@ class WebastoPhaseRestoreButton(WebastoEvccEntity, ButtonEntity):
         except (UniteRestAuthError, UniteRestError) as err:
             self._last_press = 0.0  # let the user retry
             raise HomeAssistantError(f"Could not restore 3-phase config: {err}") from err
+        # The toggle went over the web UI, so the charger dropped its charge
+        # current without Modbus ever seeing it. Put evcc's requested current
+        # back, otherwise a plugged-in car stays at 0 A.
+        await self.coordinator.async_reassert_current()

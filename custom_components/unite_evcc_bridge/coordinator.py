@@ -185,6 +185,24 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         requested_3p = self._phase_explicitly_requested and self.requested_phase == "3"
         return bool(snapshot and snapshot.available and phase_mismatch(snapshot, requested_3p))
 
+    async def async_reassert_current(self) -> None:
+        """Re-write the charge current the controller last asked for.
+
+        Needed after an action that went over the charger's web UI instead of
+        Modbus (the 3-phase config restore): the charger drops its charge current
+        on such a config change, and evcc will not necessarily re-send its value,
+        so a plugged-in car would sit at 0 A.
+        """
+        current = self.current_intent
+        if self._buffer_commands or self.enabled_intent is False:
+            current = 0
+        if current is None:
+            current = self.resume_current
+        async with self._command_lock:
+            await self.client.write(CURRENT_LIMIT, current)
+        _LOGGER.info("Re-asserted charge current after web-UI action: %sA", current)
+        await self.async_request_refresh()
+
     async def async_set_current(self, value: float) -> None:
         requested = normalize_current_a(value, self.max_current)
         if requested > 0:
