@@ -60,6 +60,33 @@ def is_three_phase_install(configured: str | None, reported_404: int | None) -> 
     return reported_404 != 0
 
 
+def should_restore_phase_config(
+    *,
+    enabled: bool,
+    rest_enabled: bool,
+    vehicle_connected: bool,
+    phase_capability_raw: int | None,
+    grid_phases: str | None,
+    attempts: int,
+    max_attempts: int,
+) -> bool:
+    """Whether to re-sync a stuck 1-phase installation config right now.
+
+    Only while idle: the fix tears down a running session and some cars only
+    re-negotiate after being re-plugged. Only when really stuck (404 reads 0) on
+    an installation the user declared as 3-phase. Attempts are capped.
+    """
+    if not (enabled and rest_enabled):
+        return False
+    if vehicle_connected:
+        return False
+    if phase_capability_raw != 0:
+        return False
+    if not is_three_phase_install(grid_phases, phase_capability_raw):
+        return False
+    return attempts < max_attempts
+
+
 def phase_mismatch(data: ChargerSnapshot, requested_3p: bool) -> bool:
     """True when 3-phase was actively requested but the car draws only 1.
 

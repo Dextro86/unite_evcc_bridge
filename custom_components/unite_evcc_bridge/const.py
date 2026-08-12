@@ -41,10 +41,13 @@ GRID_PHASES_1 = "1"
 GRID_PHASES_3 = "3"
 GRID_PHASES = (GRID_PHASES_1, GRID_PHASES_3)
 
-# Automatically re-sync a stuck 1-phase installation config at unplug - the only
-# moment there is no charging session to break. Opt-in: it writes an installation
-# setting over the charger's web UI.
+# Automatically re-sync a stuck 1-phase installation config while the charger is
+# idle. Opt-in: it writes an installation setting over the charger's web UI.
 CONF_PHASE_RESTORE_ON_UNPLUG = "phase_restore_on_unplug"
 DEFAULT_PHASE_RESTORE_ON_UNPLUG = False
+# Retry pacing: the "idle and stuck" condition stays true until it is fixed, so
+# without a floor we would hammer the web UI every poll.
+PHASE_RESTORE_RETRY_S = 900          # 15 min between attempts
+PHASE_RESTORE_MAX_ATTEMPTS = 3
 REST_TIMEOUT_S = 15
 HEARTBEAT_ALIVE_VALUE = 1

@@ -7,6 +7,7 @@ from custom_components.unite_evcc_bridge.control import (
     derive_state,
     is_three_phase_install,
     phase_mismatch,
+    should_restore_phase_config,
 )
 from custom_components.unite_evcc_bridge.models import ChargerSnapshot, normalize_current_a
 from custom_components.unite_evcc_bridge.modbus import (
@@ -381,3 +382,24 @@ def test_is_three_phase_install() -> None:
     assert is_three_phase_install(None, 1) is True
     assert is_three_phase_install(None, 0) is False  # genuine 1-phase install
     assert is_three_phase_install(None, None) is True  # unknown -> assume 3P default
+
+
+# --- automatic 3-phase config restore ---------------------------------------
+def _restore(**over):
+    base = dict(
+        enabled=True, rest_enabled=True, vehicle_connected=False,
+        phase_capability_raw=0, grid_phases="3", attempts=0, max_attempts=3,
+    )
+    base.update(over)
+    return should_restore_phase_config(**base)
+
+
+def test_should_restore_phase_config() -> None:
+    assert _restore() is True
+    assert _restore(enabled=False) is False
+    assert _restore(rest_enabled=False) is False
+    assert _restore(vehicle_connected=True) is False   # never mid-session
+    assert _restore(phase_capability_raw=1) is False   # not stuck
+    assert _restore(grid_phases="1") is False          # genuine 1-phase wallbox
+    assert _restore(grid_phases=None) is False         # unanswered -> ambiguous
+    assert _restore(attempts=3) is False               # attempt cap

@@ -11,7 +11,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.const import CONF_HOST
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .control import is_three_phase_install, phase_mismatch
+from .control import is_three_phase_install, phase_mismatch, should_restore_phase_config
 from .const import (
     CONF_GRID_PHASES,
     CONF_PHASE_RESTORE_ON_UNPLUG,
@@ -22,6 +22,8 @@ from .const import (
     DEFAULT_REST_ENABLED,
     DEFAULT_REST_USERNAME,
     DEFAULT_RESUME_CURRENT,
+    PHASE_RESTORE_MAX_ATTEMPTS,
+    PHASE_RESTORE_RETRY_S,
     DOMAIN,
 )
 from .rest_client import UniteRestError, async_restore_three_phase
@@ -70,6 +72,8 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self.client = client
         self._vehicle_was_connected = False
         self._auto_restore_task: asyncio.Task | None = None
+        self._auto_restore_attempts = 0
+        self._auto_restore_after = 0.0
         self.configured_poll_interval = poll_interval
         self.effective_poll_interval = effective_interval
         self.max_current = max_current
@@ -120,9 +124,18 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
             self.current_intent = data.current_limit_a
         if self.enabled_intent is None:
             self.enabled_intent = data.enabled
+        just_connected = data.vehicle_connected and not self._vehicle_was_connected
+        self._vehicle_was_connected = data.vehicle_connected
         if not data.vehicle_connected:
             self._recovery_attempted = False
         self._maybe_auto_restore_phase(data)
+        # A new session: the wallbox applies its own (minimum) charge current, so
+        # put back what evcc actually asked for - 0 A when it wants no charging.
+        if just_connected and not self.recovery_active:
+            try:
+                await self.async_reassert_current("a new session", refresh=False)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Could not re-assert current at session start: %s", err)
 
         try:
             await write_heartbeat(self.client)
@@ -133,31 +146,38 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         return data
 
     def _maybe_auto_restore_phase(self, data: ChargerSnapshot) -> None:
-        """Re-sync a stuck 1-phase config at unplug, if the user opted in.
+        """Re-sync a stuck 1-phase installation config while the charger is idle.
 
-        The web-UI toggle that fixes this breaks the running charging session, so
-        the only free moment is right after the vehicle is unplugged: the next
-        plug-in then starts with the config already correct. Only fires when the
-        charger really is stuck (register 404 reads 0) on an installation the
-        user declared as 3-phase - on a genuine 1-phase wallbox 404 = 0 is
-        correct and must be left alone.
+        The web-UI toggle that fixes this tears down a running charging session,
+        and some cars only re-negotiate after being re-plugged - so it may only
+        run with no vehicle attached. Not tied to the unplug *moment*: the config
+        also flips on its own, and waiting for the next unplug would cost a whole
+        session on one phase.
         """
-        connected = data.vehicle_connected
-        just_unplugged = self._vehicle_was_connected and not connected
-        self._vehicle_was_connected = connected
-        if not just_unplugged:
-            return
-        o = self.entry.options
-        if not o.get(CONF_PHASE_RESTORE_ON_UNPLUG, DEFAULT_PHASE_RESTORE_ON_UNPLUG):
-            return
-        if not o.get(CONF_REST_ENABLED, DEFAULT_REST_ENABLED):
+        if data.vehicle_connected:
+            self._auto_restore_attempts = 0  # a fresh session re-arms it
             return
         if data.phase_capability_raw != 0:
-            return  # not stuck
-        if not is_three_phase_install(o.get(CONF_GRID_PHASES), data.phase_capability_raw):
-            return  # genuinely 1-phase (or unanswered) -> never write a 3-phase config
+            self._auto_restore_attempts = 0  # healthy again
+            return
+        o = self.entry.options
+        if not should_restore_phase_config(
+            enabled=o.get(CONF_PHASE_RESTORE_ON_UNPLUG, DEFAULT_PHASE_RESTORE_ON_UNPLUG),
+            rest_enabled=o.get(CONF_REST_ENABLED, DEFAULT_REST_ENABLED),
+            vehicle_connected=data.vehicle_connected,
+            phase_capability_raw=data.phase_capability_raw,
+            grid_phases=o.get(CONF_GRID_PHASES),
+            attempts=self._auto_restore_attempts,
+            max_attempts=PHASE_RESTORE_MAX_ATTEMPTS,
+        ):
+            return
+        now = time.monotonic()
+        if now < self._auto_restore_after:
+            return
         if self._auto_restore_task is not None and not self._auto_restore_task.done():
             return
+        self._auto_restore_after = now + PHASE_RESTORE_RETRY_S
+        self._auto_restore_attempts += 1
         self._auto_restore_task = self.hass.async_create_task(self._async_auto_restore_phase())
 
     async def _async_auto_restore_phase(self) -> None:
@@ -255,13 +275,14 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         requested_3p = self._phase_explicitly_requested and self.requested_phase == "3"
         return bool(snapshot and snapshot.available and phase_mismatch(snapshot, requested_3p))
 
-    async def async_reassert_current(self) -> None:
+    async def async_reassert_current(self, reason: str = "web-UI action", *, refresh: bool = True) -> None:
         """Re-write the charge current the controller last asked for.
 
-        Needed after an action that went over the charger's web UI instead of
-        Modbus (the 3-phase config restore): the charger drops its charge current
-        on such a config change, and evcc will not necessarily re-send its value,
-        so a plugged-in car would sit at 0 A.
+        Needed whenever the charger may have set its own current without Modbus
+        seeing it: after a web-UI config change, and at the start of a session
+        (the wallbox applies its hardware minimum when a vehicle is plugged in).
+        evcc will not necessarily re-send its value, so without this a car can
+        charge while evcc has asked for nothing.
         """
         current = self.current_intent
         if self._buffer_commands or self.enabled_intent is False:
@@ -270,8 +291,9 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
             current = self.resume_current
         async with self._command_lock:
             await self.client.write(CURRENT_LIMIT, current)
-        _LOGGER.info("Re-asserted charge current after web-UI action: %sA", current)
-        await self.async_request_refresh()
+        _LOGGER.info("Re-asserted charge current after %s: %sA", reason, current)
+        if refresh:
+            await self.async_request_refresh()
 
     async def async_set_current(self, value: float) -> None:
         requested = normalize_current_a(value, self.max_current)
