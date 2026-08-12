@@ -55,6 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     coordinator = WebastoEvccCoordinator(
         hass,
+        entry=entry,
         client=client,
         poll_interval=int(
             options.get(

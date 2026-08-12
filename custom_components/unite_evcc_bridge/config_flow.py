@@ -21,6 +21,8 @@ from .const import (
     GRID_PHASES,
     GRID_PHASES_1,
     GRID_PHASES_3,
+    CONF_PHASE_RESTORE_ON_UNPLUG,
+    DEFAULT_PHASE_RESTORE_ON_UNPLUG,
     CONF_PHASE_RECOVERY_ENABLED,
     CONF_PHASE_RECOVERY_OBSERVE,
     CONF_POLL_INTERVAL,
@@ -219,6 +221,10 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
                     CONF_PHASE_RECOVERY_DWELL,
                     default=DEFAULT_PHASE_RECOVERY_DWELL_S,
                 ): _num(60, 300, 1, "s"),
+                vol.Required(
+                    CONF_PHASE_RESTORE_ON_UNPLUG,
+                    default=DEFAULT_PHASE_RESTORE_ON_UNPLUG,
+                ): selector.BooleanSelector(),
             }
         )
         return self.async_show_form(

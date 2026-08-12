@@ -40,5 +40,11 @@ CONF_GRID_PHASES = "grid_phases"
 GRID_PHASES_1 = "1"
 GRID_PHASES_3 = "3"
 GRID_PHASES = (GRID_PHASES_1, GRID_PHASES_3)
+
+# Automatically re-sync a stuck 1-phase installation config at unplug - the only
+# moment there is no charging session to break. Opt-in: it writes an installation
+# setting over the charger's web UI.
+CONF_PHASE_RESTORE_ON_UNPLUG = "phase_restore_on_unplug"
+DEFAULT_PHASE_RESTORE_ON_UNPLUG = False
 REST_TIMEOUT_S = 15
 HEARTBEAT_ALIVE_VALUE = 1

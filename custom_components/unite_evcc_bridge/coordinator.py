@@ -8,8 +8,23 @@ import time
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .control import phase_mismatch
-from .const import DEFAULT_RESUME_CURRENT, DOMAIN
+from homeassistant.const import CONF_HOST
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .control import is_three_phase_install, phase_mismatch
+from .const import (
+    CONF_GRID_PHASES,
+    CONF_PHASE_RESTORE_ON_UNPLUG,
+    CONF_REST_ENABLED,
+    CONF_REST_PASSWORD,
+    CONF_REST_USERNAME,
+    DEFAULT_PHASE_RESTORE_ON_UNPLUG,
+    DEFAULT_REST_ENABLED,
+    DEFAULT_REST_USERNAME,
+    DEFAULT_RESUME_CURRENT,
+    DOMAIN,
+)
+from .rest_client import UniteRestError, async_restore_three_phase
 from .modbus import WebastoBridgeClient
 from .models import ChargerSnapshot, normalize_current_a
 from .registers import CURRENT_LIMIT, PHASE_SWITCH
@@ -34,6 +49,7 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self,
         hass,
         *,
+        entry,
         client: WebastoBridgeClient,
         poll_interval: int,
         max_current: int,
@@ -50,7 +66,10 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
             name=DOMAIN,
             update_interval=timedelta(seconds=effective_interval),
         )
+        self.entry = entry
         self.client = client
+        self._vehicle_was_connected = False
+        self._auto_restore_task: asyncio.Task | None = None
         self.configured_poll_interval = poll_interval
         self.effective_poll_interval = effective_interval
         self.max_current = max_current
@@ -103,6 +122,7 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
             self.enabled_intent = data.enabled
         if not data.vehicle_connected:
             self._recovery_attempted = False
+        self._maybe_auto_restore_phase(data)
 
         try:
             await write_heartbeat(self.client)
@@ -111,6 +131,56 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
             return ChargerSnapshot(available=False, last_error=str(err))
 
         return data
+
+    def _maybe_auto_restore_phase(self, data: ChargerSnapshot) -> None:
+        """Re-sync a stuck 1-phase config at unplug, if the user opted in.
+
+        The web-UI toggle that fixes this breaks the running charging session, so
+        the only free moment is right after the vehicle is unplugged: the next
+        plug-in then starts with the config already correct. Only fires when the
+        charger really is stuck (register 404 reads 0) on an installation the
+        user declared as 3-phase - on a genuine 1-phase wallbox 404 = 0 is
+        correct and must be left alone.
+        """
+        connected = data.vehicle_connected
+        just_unplugged = self._vehicle_was_connected and not connected
+        self._vehicle_was_connected = connected
+        if not just_unplugged:
+            return
+        o = self.entry.options
+        if not o.get(CONF_PHASE_RESTORE_ON_UNPLUG, DEFAULT_PHASE_RESTORE_ON_UNPLUG):
+            return
+        if not o.get(CONF_REST_ENABLED, DEFAULT_REST_ENABLED):
+            return
+        if data.phase_capability_raw != 0:
+            return  # not stuck
+        if not is_three_phase_install(o.get(CONF_GRID_PHASES), data.phase_capability_raw):
+            return  # genuinely 1-phase (or unanswered) -> never write a 3-phase config
+        if self._auto_restore_task is not None and not self._auto_restore_task.done():
+            return
+        self._auto_restore_task = self.hass.async_create_task(self._async_auto_restore_phase())
+
+    async def _async_auto_restore_phase(self) -> None:
+        o = self.entry.options
+        host = o.get(CONF_HOST, self.entry.data[CONF_HOST])
+        try:
+            route = await async_restore_three_phase(
+                async_get_clientsession(self.hass),
+                host,
+                o.get(CONF_REST_USERNAME, DEFAULT_REST_USERNAME),
+                o.get(CONF_REST_PASSWORD, ""),
+            )
+        except UniteRestError as err:
+            _LOGGER.warning(
+                "Charger is stuck on 1-phase, but the automatic restore failed: %s", err
+            )
+            return
+        _LOGGER.info(
+            "Vehicle unplugged with the charger stuck on 1-phase; restored the "
+            "3-phase config via %s",
+            route,
+        )
+        await self.async_request_refresh()
 
     async def _async_ensure_connection_ownership(self) -> None:
         if (
