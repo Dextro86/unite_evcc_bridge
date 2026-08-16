@@ -23,6 +23,10 @@ from .const import (
     GRID_PHASES_3,
     CONF_PHASE_RESTORE_ON_UNPLUG,
     DEFAULT_PHASE_RESTORE_ON_UNPLUG,
+    CONF_PHASE_RESTORE_DELAY,
+    DEFAULT_PHASE_RESTORE_DELAY_S,
+    MIN_PHASE_RESTORE_DELAY_S,
+    MAX_PHASE_RESTORE_DELAY_S,
     CONF_PHASE_RECOVERY_ENABLED,
     CONF_PHASE_RECOVERY_OBSERVE,
     CONF_POLL_INTERVAL,
@@ -225,6 +229,10 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
                     CONF_PHASE_RESTORE_ON_UNPLUG,
                     default=DEFAULT_PHASE_RESTORE_ON_UNPLUG,
                 ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_PHASE_RESTORE_DELAY,
+                    default=DEFAULT_PHASE_RESTORE_DELAY_S,
+                ): _num(MIN_PHASE_RESTORE_DELAY_S, MAX_PHASE_RESTORE_DELAY_S, 1, "s"),
             }
         )
         return self.async_show_form(

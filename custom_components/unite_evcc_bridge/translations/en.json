@@ -157,7 +157,8 @@
           "phase_recovery_enabled": "Enable 1→3 phase recovery",
           "phase_recovery_observe": "1→3 observation time (s)",
           "phase_recovery_dwell": "1→3 recovery time (s)",
-          "phase_restore_on_unplug": "Auto-restore 3-phase config when stuck"
+          "phase_restore_on_unplug": "Re-apply 3-phase config after every unplug",
+          "phase_restore_delay": "Delay after unplug before restore (s)"
         }
       },
       "advanced": {

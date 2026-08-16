@@ -41,13 +41,22 @@ GRID_PHASES_1 = "1"
 GRID_PHASES_3 = "3"
 GRID_PHASES = (GRID_PHASES_1, GRID_PHASES_3)
 
-# Automatically re-sync a stuck 1-phase installation config while the charger is
-# idle. Opt-in: it writes an installation setting over the charger's web UI.
+# Automatically re-apply the installation phase config after every unplug. The
+# firmware only restores register 405 to its default on a power cycle, reset or
+# Modbus disconnect (never on unplug), so on some chargers a session can start
+# single-phase even with 3-phase configured and every register reading correctly.
+# Toggling currentLimiterPhase forces the firmware to re-apply its default. Opt-in
+# (writes an installation setting over the web UI). Edge-triggered (once per
+# unplug), so no retry/pacing is needed - a failed attempt is retried at the next
+# unplug. Guarded by CONF_GRID_PHASES so a genuine 1-phase install is left alone.
 CONF_PHASE_RESTORE_ON_UNPLUG = "phase_restore_on_unplug"
 DEFAULT_PHASE_RESTORE_ON_UNPLUG = False
-# Retry pacing: the "idle and stuck" condition stays true until it is fixed, so
-# without a floor we would hammer the web UI every poll.
-PHASE_RESTORE_RETRY_S = 900          # 15 min between attempts
-PHASE_RESTORE_MAX_ATTEMPTS = 3
+# Wait this long after the unplug before toggling: let the wallbox finish ending
+# the session and settle, and debounce cable-state flicker. Re-checked just
+# before the toggle - a vehicle that reconnected within the delay aborts it.
+CONF_PHASE_RESTORE_DELAY = "phase_restore_delay"
+DEFAULT_PHASE_RESTORE_DELAY_S = 5
+MIN_PHASE_RESTORE_DELAY_S = 0
+MAX_PHASE_RESTORE_DELAY_S = 60
 REST_TIMEOUT_S = 15
 HEARTBEAT_ALIVE_VALUE = 1

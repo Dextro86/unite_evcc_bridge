@@ -157,7 +157,8 @@
           "phase_recovery_enabled": "1→3 faseherstel inschakelen",
           "phase_recovery_observe": "Observatietijd 1→3 (s)",
           "phase_recovery_dwell": "Hersteltijd 1→3 (s)",
-          "phase_restore_on_unplug": "3-fase-config automatisch herstellen bij vastlopen"
+          "phase_restore_on_unplug": "3-fase-config na elke unplug opnieuw toepassen",
+          "phase_restore_delay": "Wachttijd na unplug vóór herstel (s)"
         }
       },
       "advanced": {

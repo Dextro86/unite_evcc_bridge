@@ -388,18 +388,22 @@ def test_is_three_phase_install() -> None:
 def _restore(**over):
     base = dict(
         enabled=True, rest_enabled=True, vehicle_connected=False,
-        phase_capability_raw=0, grid_phases="3", attempts=0, max_attempts=3,
+        phase_capability_raw=1, grid_phases="3",
     )
     base.update(over)
     return should_restore_phase_config(**base)
 
 
 def test_should_restore_phase_config() -> None:
+    # Fires after every unplug on a 3-phase install - NOT gated on 404, because
+    # 405 can be single-phase with every register reading correctly.
     assert _restore() is True
+    assert _restore(phase_capability_raw=0) is True    # 404=0 does not block it
+    assert _restore(phase_capability_raw=None) is True # unknown -> grid_phases wins
     assert _restore(enabled=False) is False
     assert _restore(rest_enabled=False) is False
-    assert _restore(vehicle_connected=True) is False   # never mid-session
-    assert _restore(phase_capability_raw=1) is False   # not stuck
+    assert _restore(vehicle_connected=True) is False   # never while attached
     assert _restore(grid_phases="1") is False          # genuine 1-phase wallbox
-    assert _restore(grid_phases=None) is False         # unanswered -> ambiguous
-    assert _restore(attempts=3) is False               # attempt cap
+    # unanswered install question falls back to reported 404
+    assert _restore(grid_phases=None, phase_capability_raw=0) is False
+    assert _restore(grid_phases=None, phase_capability_raw=1) is True
