@@ -14,6 +14,7 @@ Minimal Home Assistant custom integration to expose a Webasto Unite / Vestel EVC
 **What it does:** expose the charger to evcc (template or custom charger),
 optional 1-phase help, Unite-bug restore and web-UI reboot. When the bridge
 leaves, it puts the charger's registers back the way it found them.
+
 **What it does not do:** solar logic, DLB and automatic phase switching
 natively; evcc owns all charging logic! Cloud and OCPP; it talks only to the
 charger on your LAN, and targets the Vestel EVC04 family (Webasto Unite).
