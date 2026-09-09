@@ -19,6 +19,25 @@ no cloud, no OCPP; evcc owns all charging decisions.
 
 Available in **English and Dutch** — Home Assistant picks the user's language.
 
+## Features
+
+- **Monitoring** — status, power, per-phase current & voltage, session energy &
+  duration, total energy, session RFID tag, plus diagnostics (connection, raw
+  registers 404/405).
+- **evcc passthrough** — charging on/off, current and phases exactly as evcc
+  expects them (template or custom charger); evcc owns all decisions.
+- **Help for cars stuck on 1 phase** *(opt-in, off by default)* — observes and,
+  only if the car stays single-phase, forces a pause so it re-negotiates on
+  3 phases.
+- **Restore for Unite bug (stuck on 1 phase)** *(opt-in, off by default)* —
+  re-applies the 3-phase config after every unplug; needs the web UI login and
+  a three-phase connection.
+- **Restart button (web UI)** *(opt-in)* — reboot the wallbox over its local
+  web UI.
+- **Safety** — failsafe current/timeout, alive heartbeat, and a register
+  baseline captured before the first write and restored on exit;
+  firmware-tolerant RFID probing.
+
 ## Requirements
 
 - A Webasto Unite with **Modbus TCP enabled** (in the charger's web UI).
