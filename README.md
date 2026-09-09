@@ -7,15 +7,16 @@
 
 Minimal Home Assistant custom integration to expose a Webasto Unite / Vestel EVC04 as an evcc Home Assistant charger.
 
-> Built on the same stable core: block reads, one persistent connection, and a
+> Built for stability: block reads, one persistent connection, and a
 > heartbeat/failsafe watchdog — plus firmware-tolerant handling of optional
 > registers, so old wallboxes stay online too.
 
 **What it does:** expose the charger to evcc (template or custom charger),
 optional 1-phase help, Unite-bug restore and web-UI reboot. When the bridge
 leaves, it puts the charger's registers back the way it found them.
-**What it does not do:** no solar logic, no DLB, no automatic phase switching,
-no cloud, no OCPP; evcc owns all charging decisions.
+**What it does not do:** solar logic, DLB and automatic phase switching
+natively; evcc owns all charging logic! Cloud and OCPP; it talks only to the
+charger on your LAN, and targets the Vestel EVC04 family (Webasto Unite).
 
 Available in **English and Dutch** — Home Assistant picks the user's language.
 
@@ -234,16 +235,23 @@ without polling the REST API periodically.
 
 ## Use in evcc
 
-You have two ways to connect evcc; both need a Home Assistant long-lived access
-token (HA → profile → Long-lived access tokens). No evcc sponsor token is
-needed for either.
+Three ways to connect evcc; no evcc sponsor token is needed for any of them.
 
-### Option 1 — template (simple)
+### Option 1 — evcc web UI (easiest)
+
+In the evcc web UI go to Configuration, add a charger of type Home Assistant,
+pick your instance (auto-discovered) and select the entities from the
+dropdowns — use the entity reference below to pick the right ones. evcc
+handles the Home Assistant login itself; no token to copy.
+
+### Option 2 — template in evcc.yaml
 
 This integration exposes the charger as an
 [evcc Home Assistant charger](https://docs.evcc.io/en/chargers/home-assistant-charger/).
 The entity IDs are **fixed and language-independent** (they don't change with your
-Home Assistant language), so you can copy this straight into your `evcc.yaml`:
+Home Assistant language), so you can copy this straight into your `evcc.yaml`.
+Needs a Home Assistant long-lived access token
+(HA → profile → Long-lived access tokens):
 
 ```yaml
 chargers:
@@ -286,12 +294,13 @@ Full entity reference:
 | `voltageL1` / `L2` / `L3` | `sensor.unite_evcc_bridge_voltage_l1` / `_l2` / `_l3` |
 | `phaseswitch` | `select.unite_evcc_bridge_phase_mode` |
 
-### Option 2 — custom charger (RFID + phases via the evcc UI)
+### Option 3 — custom charger (RFID + phases via the evcc UI)
 
 The template has no `identify` field, so RFID vehicle identification needs a
 user-defined (`type: custom`) charger — which can also be built in the evcc web
-UI. Replace `http://homeassistant.local:8123` and `<TOKEN>` below (and add the
-`_2` suffix if you have a second charger):
+UI. Like option 2 this talks to the Home Assistant API directly, so it needs
+the URI and a long-lived access token. Replace `http://homeassistant.local:8123`
+and `<TOKEN>` below (and add the `_2` suffix if you have a second charger):
 
 ```yaml
 status:
