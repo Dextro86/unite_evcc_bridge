@@ -4,7 +4,8 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import EVENT_HOMEASSISTANT_STOP, HomeAssistant
+from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_FAILSAFE_CURRENT,
@@ -78,6 +79,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    async def _async_restore_on_stop(_event) -> None:
+        coord = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        if coord is not None:
+            try:
+                await coord.async_restore_baseline_on_exit()
+            except Exception:  # noqa: BLE001 - shutdown must never hang on this
+                _LOGGER.exception("Baseline restore on shutdown failed")
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_restore_on_stop)
+    )
     if coordinator.data is None:
         hass.async_create_task(coordinator.async_request_refresh())
     return True
@@ -89,3 +102,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if coordinator is not None:
         await coordinator.async_shutdown()
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove a config entry; drop its stored register baseline."""
+    try:
+        await Store(hass, 1, f"{DOMAIN}_baseline_{entry.entry_id}").async_remove()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Could not remove the stored register baseline", exc_info=True)

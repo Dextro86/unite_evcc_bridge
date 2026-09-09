@@ -8,6 +8,7 @@ from time import monotonic
 from typing import Any, TypeVar
 
 from .models import ChargerSnapshot
+from .control import RfidProbe
 from .registers import (
     ACTIVE_POWER,
     CABLE_STATE,
@@ -75,6 +76,8 @@ class WebastoBridgeClient:
         self._unit_kwarg: str | None = None
         self._ever_connected = False
         self.stats = ModbusStats()
+        self._rfid_probe = RfidProbe()
+        self._rfid_probe_epoch = 0
 
     async def async_close(self) -> None:
         async with self._lock:
@@ -104,10 +107,14 @@ class WebastoBridgeClient:
             failsafe_current = await self._optional_int(FAILSAFE_CURRENT)
             failsafe_timeout = await self._optional_int(FAILSAFE_TIMEOUT)
             # Only meaningful while a vehicle is connected, and absent on
-            # firmware older than spec v1.9 - hence gated and optional.
+            # firmware older than spec v1.9 - hence gated and optional. Probed
+            # once per connection (see RfidProbe): a failed probe never affects
+            # the rest of the snapshot and never drops the connection.
             cable_state = int(self._decode_from_block(CABLE_STATE, telemetry, TELEMETRY_BASE))
             session_rfid = (
-                await self._optional_string(SESSION_RFID) if cable_state >= 2 else None
+                (await self.try_read_optional_string(SESSION_RFID))[0]
+                if cable_state >= 2
+                else None
             )
 
             return ChargerSnapshot(
@@ -158,6 +165,64 @@ class WebastoBridgeClient:
             return None
         raw = b"".join(int(r).to_bytes(2, "big") for r in registers)
         return raw.decode("ascii", errors="ignore").strip("\x00 ").strip() or None
+
+    async def try_read_optional_string(self, register: Register) -> tuple[str | None, bool]:
+        """Best-effort string read of an optional register.
+
+        Single attempt, no retries, never disconnects. Returns
+        ``(value, transport_error)``: value None with transport_error False
+        means a clean refusal (unsupported firmware); True means a timeout or
+        connection failure, in which case the probe latch may disable further
+        reads so a crashy firmware is left alone.
+        """
+        if self.stats.connection_epoch != self._rfid_probe_epoch:
+            self._rfid_probe_epoch = self.stats.connection_epoch
+            self._rfid_probe.reset_on_reconnect()
+        if not self._rfid_probe.want_probe:
+            return None, False
+        async with self._lock:
+            try:
+                await self._ensure_connected_locked()
+                assert self._client is not None
+                method = (
+                    self._client.read_input_registers
+                    if register.register_type == RegisterType.INPUT
+                    else self._client.read_holding_registers
+                )
+                response = await self._request(
+                    method, address=register.address, count=register.count
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:  # noqa: BLE001
+                self.stats.read_failures += 1
+                if isinstance(err, asyncio.TimeoutError):
+                    self.stats.timeouts += 1
+                self.stats.last_error = str(err)
+                if self._rfid_probe.note_transport_error():
+                    _LOGGER.warning(
+                        "RFID probe keeps losing the connection; RFID reads "
+                        "disabled until the integration is reloaded"
+                    )
+                return None, True
+            is_error = getattr(response, "isError", None)
+            if response is None or (callable(is_error) and is_error()):
+                # Clean protocol refusal: the wallbox is alive, it just does
+                # not serve this register.
+                self.stats.read_failures += 1
+                self.stats.last_error = f"Optional register {register.name} refused"
+                self._rfid_probe.note_unsupported()
+                _LOGGER.info(
+                    "Charger does not serve the RFID registers; "
+                    "skipping RFID reads on this connection"
+                )
+                return None, False
+            raw = b"".join(int(r).to_bytes(2, "big") for r in response.registers)
+            self._rfid_probe.note_ok()
+            self.stats.connected = True
+            self.stats.last_ok = monotonic()
+            self.stats.last_error = None
+            return raw.decode("ascii", errors="ignore").strip("\x00 ").strip() or None, False
 
     async def _read_registers(self, register: Register) -> list[int]:
         return await self._read_block(register.register_type, register.address, register.count)

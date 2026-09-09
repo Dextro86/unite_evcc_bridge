@@ -218,21 +218,9 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
                     default=DEFAULT_PHASE_RECOVERY_ENABLED,
                 ): selector.BooleanSelector(),
                 vol.Required(
-                    CONF_PHASE_RECOVERY_OBSERVE,
-                    default=DEFAULT_PHASE_RECOVERY_OBSERVE_S,
-                ): _num(20, 120, 1, "s"),
-                vol.Required(
-                    CONF_PHASE_RECOVERY_DWELL,
-                    default=DEFAULT_PHASE_RECOVERY_DWELL_S,
-                ): _num(60, 300, 1, "s"),
-                vol.Required(
                     CONF_PHASE_RESTORE_ON_UNPLUG,
                     default=DEFAULT_PHASE_RESTORE_ON_UNPLUG,
                 ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_PHASE_RESTORE_DELAY,
-                    default=DEFAULT_PHASE_RESTORE_DELAY_S,
-                ): _num(MIN_PHASE_RESTORE_DELAY_S, MAX_PHASE_RESTORE_DELAY_S, 1, "s"),
             }
         )
         return self.async_show_form(
@@ -254,6 +242,18 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Required(CONF_FAILSAFE_CURRENT, default=DEFAULT_FAILSAFE_CURRENT_A): _num(0, 32, 1, "A"),
                 vol.Required(CONF_FAILSAFE_TIMEOUT, default=DEFAULT_FAILSAFE_TIMEOUT_S): _num(10, 120, 1, "s"),
+                vol.Required(
+                    CONF_PHASE_RECOVERY_OBSERVE,
+                    default=DEFAULT_PHASE_RECOVERY_OBSERVE_S,
+                ): _num(20, 120, 1, "s"),
+                vol.Required(
+                    CONF_PHASE_RECOVERY_DWELL,
+                    default=DEFAULT_PHASE_RECOVERY_DWELL_S,
+                ): _num(60, 300, 1, "s"),
+                vol.Required(
+                    CONF_PHASE_RESTORE_DELAY,
+                    default=DEFAULT_PHASE_RESTORE_DELAY_S,
+                ): _num(MIN_PHASE_RESTORE_DELAY_S, MAX_PHASE_RESTORE_DELAY_S, 1, "s"),
             }
         )
         return self.async_show_form(

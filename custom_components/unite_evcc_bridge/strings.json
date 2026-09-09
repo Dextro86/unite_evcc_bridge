@@ -151,37 +151,65 @@
       },
       "charge": {
         "title": "Charging",
+        "description": "How the charger charges. evcc decides; this only passes it on.",
         "data": {
-          "max_current": "Maximum charge current (A)",
+          "max_current": "Maximum current",
           "grid_phases": "Charger connection",
-          "phase_recovery_enabled": "Enable 1→3 phase recovery",
-          "phase_recovery_observe": "1→3 observation time (s)",
-          "phase_recovery_dwell": "1→3 recovery time (s)",
-          "phase_restore_on_unplug": "Auto-restore 3-phase config when stuck"
+          "phase_recovery_enabled": "Help cars stuck on 1 phase",
+          "phase_restore_on_unplug": "Restore for Unite bug (stuck on 1 phase)"
+        },
+        "data_description": {
+          "max_current": "Normally 16 A (about 11 kW on 3 phases).",
+          "grid_phases": "Single- or three-phase, as your electrician wired it. If unsure, check the charger's web UI. This setting also keeps the phase fixes below from running on the wrong installation.",
+          "phase_recovery_enabled": "Some cars don't pick up 3 phases by themselves after switching — then the charger pauses briefly so the car restarts on 3 phases. Interrupts charging briefly, so off by default.",
+          "phase_restore_on_unplug": "Works around a charger bug where a new session starts on 1 phase even though 3 phases are configured. After every unplug the charger is briefly set to 1 phase and back to 3 phases, forcing it to apply its own default. Requires the web UI login and a three-phase connection."
         }
       },
       "advanced": {
         "title": "Advanced",
+        "description": "Only change these if you know why. Wrong values can stall charging. The timers below only apply when their switch (on the Charging screen) is on.",
         "data": {
-          "poll_interval": "Polling interval (s)",
-          "failsafe_current": "Failsafe current (A)",
-          "failsafe_timeout": "Failsafe timeout (s)"
+          "poll_interval": "Check-in frequency",
+          "failsafe_current": "Backup current if contact is lost",
+          "failsafe_timeout": "Waiting time before backup",
+          "phase_recovery_observe": "Watching time before 1-phase help",
+          "phase_recovery_dwell": "Pause length for 1-phase help",
+          "phase_restore_delay": "Waiting time after unplugging"
+        },
+        "data_description": {
+          "poll_interval": "How often the charger is polled. Normally 10 s.",
+          "failsafe_current": "The charger falls back to this if it hears nothing for a while. Normally 6 A; 0 A stops charging entirely.",
+          "failsafe_timeout": "How long the silence may last before the backup kicks in. Normally 30 s.",
+          "phase_recovery_observe": "How long to watch before concluding the car is stuck on 1 phase. Normally 60 s.",
+          "phase_recovery_dwell": "How long charging pauses so the car restarts on 3 phases. Normally 121 s.",
+          "phase_restore_delay": "Lets the charger finish the session. Plugging back in within this time cancels the restore. Normally 5 s."
         }
       },
       "reboot": {
-        "title": "Restart (web UI)",
+        "title": "Web UI",
+        "description": "Logs in to the charger's web interface. This adds a Restart button — only use it when the charger is stuck, it stops an ongoing charging session. The login is also required for \"Restore for Unite bug\" on the Charging screen.",
         "data": {
-          "rest_enabled": "Enable web UI restart",
-          "rest_username": "Web UI username",
-          "rest_password": "Web UI password"
+          "rest_enabled": "Enable web UI login",
+          "rest_username": "Charger web UI username",
+          "rest_password": "Charger web UI password"
+        },
+        "data_description": {
+          "rest_username": "Usually \"admin\". Needed once to log in to the charger.",
+          "rest_password": "The password of the charger's web UI (on the sticker or set by you). Stored locally only."
         }
       },
       "connection": {
         "title": "Connection",
+        "description": "Where is your charger on your home network? You normally never need this again after setup.",
         "data": {
           "host": "IP address",
           "port": "Port",
           "unit_id": "Modbus unit ID"
+        },
+        "data_description": {
+          "host": "E.g. 192.168.1.50. Find it in your router or the charger's web UI.",
+          "port": "Default 502 — only change if you changed it on the charger itself.",
+          "unit_id": "Default 255 — only change if the charger does not respond."
         }
       }
     },

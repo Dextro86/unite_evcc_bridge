@@ -144,45 +144,72 @@
         "menu_options": {
           "charge": "Laden",
           "advanced": "Geavanceerd",
-          "reboot": "Herstarten (web-UI)",
+          "reboot": "Lader herstarten",
           "save": "Opslaan en sluiten",
           "connection": "Verbinding"
         }
       },
       "charge": {
         "title": "Laden",
+        "description": "Hoe de lader laadt. evcc beslist; dit geeft het alleen door.",
         "data": {
-          "max_current": "Maximale laadstroom (A)",
+          "max_current": "Maximale laadstroom",
           "grid_phases": "Netaansluiting lader",
-          "phase_recovery_enabled": "1→3 faseherstel inschakelen",
-          "phase_recovery_observe": "Observatietijd 1→3 (s)",
-          "phase_recovery_dwell": "Hersteltijd 1→3 (s)",
-          "phase_restore_on_unplug": "3-fase-config na elke unplug opnieuw toepassen",
-          "phase_restore_delay": "Wachttijd na unplug vóór herstel (s)"
+          "phase_recovery_enabled": "Auto's helpen die op 1 fase blijven hangen",
+          "phase_restore_on_unplug": "Herstel voor Unite-bug (vast op 1 fase)"
+        },
+        "data_description": {
+          "max_current": "Normaal 16A (ongeveer 11 kW bij 3 fasen).",
+          "grid_phases": "1-fase of 3-fasen, zoals de elektricien hem heeft aangesloten. Bij twijfel: kijk in de web-UI van de lader. Deze instelling voorkomt ook dat de fase-oplossingen hieronder op een verkeerde installatie losgaan.",
+          "phase_recovery_enabled": "Sommige auto's pakken 3 fasen na het schakelen niet vanzelf op — dan pauzeert de lader even zodat de auto opnieuw op 3 fasen begint. Onderbreekt het laden kort, daarom staat dit standaard uit.",
+          "phase_restore_on_unplug": "Omzeilt een laderbug waarbij een nieuwe sessie op 1 fase start terwijl er 3 fasen zijn ingesteld. Na elk afkoppelen wordt de lader kort op 1 fase en weer terug op 3 fasen gezet, zodat hij zijn eigen instelling opnieuw toepast. Vereist de web-UI-login en een 3-fasen-aansluiting."
         }
       },
       "advanced": {
         "title": "Geavanceerd",
+        "description": "Alleen wijzigen als je weet waarom. Foute waarden kunnen het laden stilleggen. De timers hieronder gelden alleen als hun schakelaar (op het Laden-scherm) aan staat.",
         "data": {
-          "poll_interval": "Polling-interval (s)",
-          "failsafe_current": "Failsafe-stroom (A)",
-          "failsafe_timeout": "Failsafe-timeout (s)"
+          "poll_interval": "Hoe vaak contact",
+          "failsafe_current": "Noodstroom bij wegvallen contact",
+          "failsafe_timeout": "Wachttijd vóór noodstroom",
+          "phase_recovery_observe": "Kijktijd vóór 1-fase-hulp",
+          "phase_recovery_dwell": "Pauzeduur 1-fase-hulp",
+          "phase_restore_delay": "Wachttijd na afkoppelen"
+        },
+        "data_description": {
+          "poll_interval": "Hoe vaak de lader wordt uitgelezen. Normaal 10 s.",
+          "failsafe_current": "Hierop valt de lader terug als hij een tijdje niets hoort. Normaal 6A; 0A stopt het laden helemaal.",
+          "failsafe_timeout": "Hoe lang de stilte mag duren voordat de noodstroom ingaat. Normaal 30 s.",
+          "phase_recovery_observe": "Hoe lang er gekeken wordt voordat vaststaat dat de auto op 1 fase hangt. Normaal 60 s.",
+          "phase_recovery_dwell": "Hoe lang het laden pauzeert zodat de auto opnieuw op 3 fasen begint. Normaal 121 s.",
+          "phase_restore_delay": "Laat de lader de sessie afronden. Binnen deze tijd weer insteken annuleert het herstel. Normaal 5 s."
         }
       },
       "reboot": {
-        "title": "Herstarten (web-UI)",
+        "title": "Web-UI",
+        "description": "Logt in op de webomgeving van de lader. Dit voegt een Herstart-knop toe — alleen gebruiken als de lader vastzit, een lopende laadsessie stopt ermee. De login is ook nodig voor \"Herstel voor Unite-bug\" op het Laden-scherm.",
         "data": {
-          "rest_enabled": "Herstart via web-UI inschakelen",
-          "rest_username": "Web-UI gebruikersnaam",
-          "rest_password": "Web-UI wachtwoord"
+          "rest_enabled": "Web-UI-login inschakelen",
+          "rest_username": "Gebruikersnaam web-UI lader",
+          "rest_password": "Wachtwoord web-UI lader"
+        },
+        "data_description": {
+          "rest_username": "Meestal \"admin\". Eén keer nodig om op de lader in te loggen.",
+          "rest_password": "Het wachtwoord van de web-UI van de lader (op de sticker of zelf ingesteld). Alleen lokaal opgeslagen."
         }
       },
       "connection": {
         "title": "Verbinding",
+        "description": "Waar staat je lader op het thuisnetwerk? Meestal hoef je hier na de installatie nooit meer te komen.",
         "data": {
           "host": "IP-adres",
           "port": "Poort",
           "unit_id": "Modbus unit-ID"
+        },
+        "data_description": {
+          "host": "Bijv. 192.168.1.50. Te vinden in je router of in de web-UI van de lader.",
+          "port": "Standaard 502 — alleen wijzigen als je hem op de lader zelf hebt veranderd.",
+          "unit_id": "Standaard 255 — alleen wijzigen als de lader niet reageert."
         }
       }
     },

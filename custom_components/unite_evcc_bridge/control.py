@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .models import ChargerSnapshot
 
 STATE_IDLE = "idle"
@@ -102,3 +104,59 @@ def phase_mismatch(data: ChargerSnapshot, requested_3p: bool) -> bool:
         and (data.current_l2_a or 0.0) < 2.0
         and (data.current_l3_a or 0.0) < 2.0
     )
+
+
+@dataclass
+class RfidProbe:
+    """Remembers whether the charger serves the optional RFID registers.
+
+    The session-RFID tag (1516-1530) only exists on newer firmware. Probing it
+    on every poll would hammer old wallboxes, so the client asks once per
+    connection and this object remembers the answer:
+
+    - clean refusal (the charger answers "no such registers") -> unsupported
+      until the next reconnect; a single failed read per connection at most.
+    - transport failure (timeout / connection lost mid-probe) while the
+      mandatory reads are healthy -> the register is dangerous on this
+      firmware; after ``max_transport_strikes`` it stays disabled for the rest
+      of the Home Assistant session, so a crashy firmware cannot be kept in a
+      probe -> crash -> reconnect loop. A reload probes again.
+    - success resets the strike counter; new firmware never notices this.
+    """
+
+    supported: bool | None = None  # None = unknown, probe once
+    transport_strikes: int = 0
+    session_disabled: bool = False
+    max_transport_strikes: int = 2
+
+    @property
+    def want_probe(self) -> bool:
+        """Whether the client should attempt the RFID read this cycle."""
+        return not self.session_disabled and self.supported is not False
+
+    def reset_on_reconnect(self) -> None:
+        """A new TCP connection may serve new firmware; probe again.
+
+        Strike history and the session latch survive on purpose: they describe
+        this wallbox, not this socket.
+        """
+        self.supported = None
+
+    def note_ok(self) -> None:
+        self.supported = True
+        self.transport_strikes = 0
+
+    def note_unsupported(self) -> None:
+        self.supported = False
+
+    def note_transport_error(self) -> bool:
+        """Record a timeout/connection failure during the probe.
+
+        Returns True when probing must stop for the rest of the session.
+        """
+        self.transport_strikes += 1
+        if self.transport_strikes >= self.max_transport_strikes:
+            self.session_disabled = True
+            return True
+        self.supported = False  # quiet until the next reconnect
+        return False

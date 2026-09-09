@@ -14,11 +14,11 @@ This is intentionally small:
 - no solar logic
 - no DLB
 - no automatic phase switching
-- optional adaptive 1P to 3P phase recovery
+- optional help for cars stuck on 1 phase
+- optional restore for the Unite bug (stuck on 1 phase)
 - optional web UI restart button
-- no writes on unplug except normal keepalive
 
-evcc should own charging logic. This bridge only adapts Home Assistant entities to the charger Modbus registers.
+evcc should own charging logic. This bridge only adapts Home Assistant entities to the charger Modbus registers — and puts the registers back the way it found them when it leaves.
 
 Available in **English and Dutch** — Home Assistant picks the user's language.
 
@@ -29,6 +29,9 @@ Available in **English and Dutch** — Home Assistant picks the user's language.
 - Only **one** Modbus master may talk to the charger at a time — do not point this
   bridge and another Modbus client (evcc's own Modbus charger, or the full Unite EV
   Charger integration) at the same wallbox simultaneously.
+- Older firmware is supported: registers your firmware lacks (such as the RFID
+  tag) are detected once and then left alone. See
+  [Firmware differences](#firmware-differences).
 
 ## Installation
 
@@ -50,14 +53,43 @@ Copy `custom_components/unite_evcc_bridge` into your Home Assistant
 1. *Settings → Devices & Services → Add Integration → Unite EVCC Bridge*.
 2. Enter the charger's IP address (port and unit id are pre-filled).
 
-## Configuration (Configure → Settings)
+Everything else is configured afterwards via **Configure**, screen by screen below.
 
-Open the integration options in Home Assistant to configure:
+## Settings
 
-- **Charging**: maximum charge current and optional adaptive 1P to 3P recovery
-- **Advanced**: polling interval, failsafe current and failsafe timeout
-- **Restart (web UI)**: optional restart button using the charger web UI login
-- **Connection**: charger IP address, port and Modbus unit ID
+### Charging
+
+How the charger charges. evcc decides; this only passes it on.
+
+- **Maximum current** — normally 16 A (about 11 kW on 3 phases).
+- **Charger connection** — single- or three-phase, as your electrician wired
+  it. This also keeps the phase fixes below from running on the wrong
+  installation.
+- **Help cars stuck on 1 phase** — for cars that don't pick up 3 phases by
+  themselves after switching; briefly interrupts charging, so off by default.
+- **Restore for Unite bug (stuck on 1 phase)** — pushes the 3-phase setting to
+  the charger again after every unplug. Requires the web UI login and a
+  three-phase connection.
+
+### Advanced
+
+Only change these if you know why. Wrong values can stall charging.
+
+- **Check-in frequency** — how often the charger is polled (normally 10 s).
+- **Backup current if contact is lost** — what the charger falls back to after
+  silence (normally 6 A; 0 A stops charging entirely).
+- **Waiting time before backup** — how long the silence may last (normally 30 s).
+- **Watching time before 1-phase help** (normally 60 s), **pause length for
+  1-phase help** (normally 121 s) and **waiting time after unplugging**
+  (normally 5 s) — these only apply when their switch on the Charging screen
+  is on.
+
+### Web UI
+
+Logs in to the charger's web interface. This adds a Restart button — only use
+it when the charger is stuck, it stops an ongoing charging session. The login
+is also required for *Restore for Unite bug* on the Charging screen. The
+password is stored locally only.
 
 The integration also exposes a diagnostic **Connection** binary sensor with
 reconnect counters, Modbus failure counters, timeout counters, heartbeat
@@ -66,30 +98,15 @@ failures and response timing.
 The primary **Status** sensor interprets the charger state as one of:
 `idle`, `connected`, `charging`, `phase_mismatch`, `recovery`, `restarting`,
 `disconnected` or `fault`. The diagnostic **Phase mismatch** binary sensor turns
-on when register `405` is set to 3P while measured current shows the vehicle is
-still effectively charging on L1 only. The diagnostic **Last phase recovery**
-sensor stores the timestamp and result of the latest adaptive recovery attempt.
-
-When web UI restart is enabled, Home Assistant tests the web UI login before
-saving the option. Different Unite firmware/interfaces expose different web UIs,
-so the button **auto-detects** the right one: the modern JSON API over HTTPS (on
-port `443` or `4443`, self-signed certificate) or the legacy "webconfig" portal
-over HTTP. If the JSON API is present but has no restart endpoint on that firmware,
-the button automatically falls back to the webconfig reset, so it works across
-Unite variants. It performs a **hard reset** (restart immediately, regardless of
-state) on every firmware, which **interrupts an active charging session** — it's a
-deliberate manual action. Modbus control is not changed by the button; after the
-charger restarts, the normal reconnect handshake claims the Modbus session again.
-The restart button has a 300 second cooldown because the charger web UI can stay
-offline for several minutes while Modbus is already back. The diagnostic
-**Last restart** sensor stores the timestamp and result of the latest web UI
-restart request without polling the REST API periodically.
+on when 3-phase was explicitly requested while measured current shows the
+vehicle is still effectively charging on L1 only. The diagnostic **Last phase
+recovery** sensor stores the timestamp and result of the latest recovery attempt.
 
 ## Phase switching
 
 Whether a **live** 1→3 switch takes effect mid-session is **car-dependent**: some
 cars pick up the extra phases immediately, others cache their 1p/3p choice for the
-whole session and ignore a live upshift. The optional 1P→3P recovery below is for
+whole session and ignore a live upshift. The optional 1-phase help below is for
 those cars.
 
 By default, phase switching is a direct evcc passthrough:
@@ -98,16 +115,15 @@ By default, phase switching is a direct evcc passthrough:
 2. `select_option("3")` writes `phase = 3P` to register `405`.
 3. The select state reports the requested phase to evcc.
 
-If **Enable 1P to 3P phase recovery** is turned on, the bridge first tries the
-same live `405 = 1` switch. It then observes measured L1/L2/L3 current for the
-configured observation time. If the car is still effectively charging on one
+If **Help cars stuck on 1 phase** is turned on, the bridge first tries the
+same live switch. It then observes measured L1/L2/L3 current for the
+configured watching time. If the car is still effectively charging on one
 phase, the bridge temporarily takes over the command path:
 
-1. hold `5004 = 0` for the configured recovery time,
+1. hold `5004 = 0` for the configured pause length,
 2. restore the latest requested evcc current.
 
-The second `405 = 1` write is intentionally not repeated during recovery. The
-phase register was already set during the initial live switch; recovery only
+The phase register was already set during the initial live switch; recovery only
 forces a long enough charging pause for the vehicle to renegotiate when current
 is restored.
 
@@ -120,16 +136,25 @@ During recovery, evcc-facing entities report the last requested intent:
 - `number.<name>_maximum_current` keeps reporting evcc's requested current.
 - `select.<name>_phase_mode` keeps reporting evcc's requested phase.
 
-The temporary hardware stop is exposed separately through diagnostics, including
-the hardware current limit and the phase recovery status sensors.
+The temporary hardware stop is exposed separately through diagnostics.
 
-> **Known Unite bug — stuck on 1-phase after a new session.** Separate from the
-> car-dependent behaviour above, the Unite firmware itself sometimes gets stuck:
-> after one charging session ends and a new one starts, the charger can begin on a
-> single phase even though 3-phase is requested (`405 = 3`) and stay locked that
-> way. A live phase switch does not clear it — the reliable fix is a
-> **restart** of the charger, which you can trigger from the **Restart** button
-> (enable *Restart (web UI)* in the options).
+## Restore for Unite bug (stuck on 1 phase)
+
+Separate from the car-dependent behaviour above, the Unite firmware itself
+sometimes gets stuck: after one charging session ends and a new one starts, the
+charger can begin on a single phase even though 3-phase is requested and stay
+locked that way. A live phase switch does not clear it.
+
+When enabled, the bridge re-applies the installation phase config after
+**every** unplug: it waits a few seconds (so the charger can finish the session;
+plugging back in within this time cancels the restore), then briefly sets the
+charger to 1 phase and back to 3 phases over the web UI, forcing the firmware
+to apply its own default. This runs over the **web UI** (Modbus has no such
+register), so it needs the Web UI login, and it never runs on a genuine
+1-phase installation.
+
+If the charger itself is thoroughly stuck (a plain switch doesn't clear it),
+the reliable fix remains a **restart** — see [Web UI details](#web-ui-details).
 
 ## Modbus ownership, failsafe & reconnect
 
@@ -150,7 +175,52 @@ follows that contract:
   stops writing the heartbeat, the charger drops to the configured failsafe
   current after the configured failsafe timeout.
 
+## Leaving the integration
+
+Register `2000` (failsafe current) is persistent user-visible configuration:
+it survives a Modbus disconnect and even a power cycle, and a stale value
+actively drives behaviour — the charger overwrites the charge current with it
+once Alive lapses. Whatever an integration leaves in `2000` is what the
+charger applies on every future communication loss, indefinitely.
+
+So before its first write, this bridge captures the registers it manages
+(charge current, failsafe current/timeout, phase selection) and stores them
+durably. On unload, removal and Home Assistant shutdown it writes them back
+and verifies by read-back. Anything that cannot be restored is logged with its
+value for manual recovery. The baseline answers "before us", never a guessed
+factory default — and changing your settings later does not touch it.
+
+## Web UI details
+
+Modbus has no reboot register, so a restart goes over the charger's local **web
+UI**. Different Unite firmware/interfaces expose different web UIs, so the button
+**auto-detects** the right one: the modern JSON API over HTTPS (on port `443` or
+`4443`, self-signed certificate) or the legacy "webconfig" portal over HTTP. If
+the JSON API is present but has no restart endpoint on that firmware, it
+automatically falls back to the webconfig reset — so it works across Unite
+variants.
+
+It performs a **hard reset** (restart immediately, regardless of state) on every
+firmware, which **interrupts an active charging session** — it's a deliberate
+manual action. When web UI restart is enabled, Home Assistant tests the web UI
+login before saving the option.
+
+It is **opt-in**: enable it under *Settings → Web UI* and enter the web-UI
+username (usually `admin`) and password; only then does the **Restart** button
+appear. Modbus control is not changed by the button; after the charger restarts,
+the normal reconnect handshake claims the Modbus session again. The restart
+button has a 300 second cooldown because the charger web UI can stay offline for
+several minutes while Modbus is already back. The diagnostic **Last restart**
+sensor stores the timestamp and result of the latest web UI restart request
+without polling the REST API periodically.
+
 ## Use in evcc
+
+You have two ways to connect evcc; both need a Home Assistant long-lived access
+token (HA → profile → Long-lived access tokens). No evcc sponsor token is
+needed for either.
+
+### Option 1 — template (simple)
 
 This integration exposes the charger as an
 [evcc Home Assistant charger](https://docs.evcc.io/en/chargers/home-assistant-charger/).
@@ -198,31 +268,130 @@ Full entity reference:
 | `voltageL1` / `L2` / `L3` | `sensor.unite_evcc_bridge_voltage_l1` / `_l2` / `_l3` |
 | `phaseswitch` | `select.unite_evcc_bridge_phase_mode` |
 
-### RFID tag (session billing / vehicle identification)
+### Option 2 — custom charger (RFID + phases via the evcc UI)
 
-The charger reports the RFID tag of the running session (Modbus `1516-1530`,
-firmware from Vestel spec v1.9 / 2023 onward) as
-`sensor.unite_evcc_bridge_session_rfid`. It is empty when charging freely, and
-unavailable on older firmware. The integration only reads it while a vehicle is
-connected, so it costs nothing when idle.
-
-evcc uses such a tag through its `identify` field, to match a session to a
-vehicle (see [vehicle identification](https://docs.evcc.io/en/reference/configuration/vehicles/)).
-**The `homeassistant` charger template has no `identify` field**, so to use this
-you have to define a `custom` charger instead of the template above, and add the
-tag as an `identify` plugin:
+The template has no `identify` field, so RFID vehicle identification needs a
+user-defined (`type: custom`) charger — which can also be built in the evcc web
+UI. Replace `http://homeassistant.local:8123` and `<TOKEN>` below (and add the
+`_2` suffix if you have a second charger):
 
 ```yaml
-    identify:
-      source: http
-      uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_session_rfid
-      headers:
-        Authorization: Bearer <long-lived-access-token>
-      jq: .state
+status:
+  source: http
+  uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_iec61851_status
+  headers:
+    - Authorization: Bearer <TOKEN>
+  jq: .state
+enabled:
+  source: http
+  uri: http://homeassistant.local:8123/api/states/switch.unite_evcc_bridge_charging_enabled
+  headers:
+    - Authorization: Bearer <TOKEN>
+  jq: .state == "on"
+enable:
+  source: ifelse
+  if:
+    source: http
+    uri: http://homeassistant.local:8123/api/services/switch/turn_on
+    method: POST
+    headers:
+      - Authorization: Bearer <TOKEN>
+      - Content-Type: application/json
+    body: '{"entity_id": "switch.unite_evcc_bridge_charging_enabled"}'
+  else:
+    source: http
+    uri: http://homeassistant.local:8123/api/services/switch/turn_off
+    method: POST
+    headers:
+      - Authorization: Bearer <TOKEN>
+      - Content-Type: application/json
+    body: '{"entity_id": "switch.unite_evcc_bridge_charging_enabled"}'
+maxcurrent:
+  source: http
+  uri: http://homeassistant.local:8123/api/services/number/set_value
+  method: POST
+  headers:
+    - Authorization: Bearer <TOKEN>
+    - Content-Type: application/json
+  body: '{"entity_id": "number.unite_evcc_bridge_maximum_current", "value": ${maxcurrent}}'
+power:
+  source: http
+  uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_active_power
+  headers:
+    - Authorization: Bearer <TOKEN>
+  jq: .state | tonumber
+energy:
+  source: http
+  uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_energy_total
+  headers:
+    - Authorization: Bearer <TOKEN>
+  jq: .state | tonumber
+currents:
+  - source: http
+    uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_current_l1
+    headers:
+      - Authorization: Bearer <TOKEN>
+    jq: .state | tonumber
+  - source: http
+    uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_current_l2
+    headers:
+      - Authorization: Bearer <TOKEN>
+    jq: .state | tonumber
+  - source: http
+    uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_current_l3
+    headers:
+      - Authorization: Bearer <TOKEN>
+    jq: .state | tonumber
+voltages:
+  - source: http
+    uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_voltage_l1
+    headers:
+      - Authorization: Bearer <TOKEN>
+    jq: .state | tonumber
+  - source: http
+    uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_voltage_l2
+    headers:
+      - Authorization: Bearer <TOKEN>
+    jq: .state | tonumber
+  - source: http
+    uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_voltage_l3
+    headers:
+      - Authorization: Bearer <TOKEN>
+    jq: .state | tonumber
+identify:
+  source: http
+  uri: http://homeassistant.local:8123/api/states/sensor.unite_evcc_bridge_session_rfid
+  headers:
+    - Authorization: Bearer <TOKEN>
+  jq: .state
+phases1p3p:
+  source: http
+  uri: http://homeassistant.local:8123/api/services/select/select_option
+  method: POST
+  headers:
+    - Authorization: Bearer <TOKEN>
+    - Content-Type: application/json
+  body: '{"entity_id": "select.unite_evcc_bridge_phase_mode", "value": "${phases1p3p}"}'
+tos: true
 ```
 
-Note that a `custom` charger means defining every other field (`status`,
-`enabled`, `enable`, `maxcurrent`, …) as plugins too — see evcc's
-[custom charger docs](https://docs.evcc.io/en/docs/devices/chargers#custom).
-The snippet above is a starting point for the RFID part only; it has not been
-validated end-to-end by this project.
+The charger reports the RFID tag of the running session
+(`sensor.unite_evcc_bridge_session_rfid`). It is empty when charging freely.
+evcc matches it against the `identifiers` of your vehicles (see
+[vehicle identification](https://docs.evcc.io/en/reference/configuration/vehicles/))
+to assign a session to a vehicle. `evcc charger` in a terminal shows per
+attribute whether it works.
+
+## Firmware differences
+
+Not every Unite firmware serves the same registers. The bridge handles that by
+construction:
+
+- **Required** (telemetry, session, control path): these exist on all known
+  firmware. A failure here is treated as a real outage (reconnect, retry).
+- **Optional** (currently only the session RFID tag, Modbus `1516-1530`,
+  firmware from Vestel spec v1.9 / 2023 onward): probed once per connection.
+  A clean refusal disables it until the next reconnect; repeated
+  timeouts disable it for the session. The sensor reads "unknown" and
+  everything else keeps working — no log ping-pong, no retry storms, and a
+  failed probe never drops the connection.

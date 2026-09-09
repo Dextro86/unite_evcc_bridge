@@ -28,11 +28,12 @@ from .const import (
     MIN_PHASE_RESTORE_DELAY_S,
     DOMAIN,
 )
+from homeassistant.helpers.storage import Store
 from .rest_client import UniteRestError, async_restore_three_phase
 from .modbus import WebastoBridgeClient
 from .models import ChargerSnapshot, normalize_current_a
 from .registers import CURRENT_LIMIT, PHASE_SWITCH
-from .safety import program_connection_ownership, write_heartbeat
+from .safety import capture_baseline, program_connection_ownership, restore_baseline, write_heartbeat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,6 +99,9 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self._recovery_attempted = False
         self._recovery_deadline: float | None = None
         self._buffer_commands = False
+        self._baseline_store = Store(hass, 1, f"{DOMAIN}_baseline_{entry.entry_id}")
+        self._baseline: dict[str, int | None] | None = None
+        self._baseline_loaded = False
         self._pending_current: int | None = None
         self._pending_enabled: bool | None = None
         self.rest_restart_until = 0.0
@@ -229,6 +233,28 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         if current is None:
             current = 0
 
+        # Capture the pre-integration register values once, before our first
+        # write. Stored durably, so a restart never mistakes our own values
+        # for the originals.
+        if not self._baseline_loaded:
+            self._baseline_loaded = True
+            try:
+                stored = await self._baseline_store.async_load()
+            except Exception:  # noqa: BLE001 - a corrupt store must not break setup
+                stored = None
+            if isinstance(stored, dict):
+                self._baseline = {
+                    str(k): (int(v) if isinstance(v, (int, float)) else None)
+                    for k, v in stored.items()
+                }
+        if self._baseline is None:
+            self._baseline = await capture_baseline(self.client)
+            try:
+                await self._baseline_store.async_save(self._baseline)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Could not persist the register baseline", exc_info=True)
+            _LOGGER.info("Captured charger register baseline: %s", self._baseline)
+
         await program_connection_ownership(
             self.client,
             failsafe_current_a=self.failsafe_current,
@@ -260,7 +286,35 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
 
     async def async_shutdown(self) -> None:
         self._cancel_recovery()
+        try:
+            await self.async_restore_baseline_on_exit()
+        except Exception:  # noqa: BLE001 - shutdown must still close the client
+            _LOGGER.exception("Baseline restore on shutdown failed")
         await self.client.async_close()
+
+    async def async_restore_baseline_on_exit(self) -> None:
+        """Write the captured pre-integration values back (best effort).
+
+        Called on unload, removal and shutdown. Never raises; anything that
+        cannot be restored is logged with its value for manual recovery.
+        """
+        baseline = self._baseline
+        if baseline is None:
+            try:
+                stored = await self._baseline_store.async_load()
+            except Exception:  # noqa: BLE001
+                stored = None
+            baseline = dict(stored) if isinstance(stored, dict) else None
+        if not baseline or all(v is None for v in baseline.values()):
+            return
+        failed = await restore_baseline(self.client, baseline)
+        if failed:
+            _LOGGER.warning(
+                "Could not restore charger registers; recover manually: %s",
+                {key: baseline.get(key) for key in failed},
+            )
+        else:
+            _LOGGER.info("Restored charger register baseline on exit")
 
     @property
     def rest_restarting(self) -> bool:
