@@ -91,6 +91,8 @@ it when the charger is stuck, it stops an ongoing charging session. The login
 is also required for *Restore for Unite bug* on the Charging screen. The
 password is stored locally only.
 
+### Status & diagnostics
+
 The integration also exposes a diagnostic **Connection** binary sensor with
 reconnect counters, Modbus failure counters, timeout counters, heartbeat
 failures and response timing.
