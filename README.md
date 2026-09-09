@@ -7,18 +7,15 @@
 
 Minimal Home Assistant custom integration to expose a Webasto Unite / Vestel EVC04 as an evcc Home Assistant charger.
 
-This is intentionally small:
+> Built on the same stable core: block reads, one persistent connection, and a
+> heartbeat/failsafe watchdog — plus firmware-tolerant handling of optional
+> registers, so old wallboxes stay online too.
 
-- Modbus TCP only
-- evcc-compatible Home Assistant entities
-- no solar logic
-- no DLB
-- no automatic phase switching
-- optional help for cars stuck on 1 phase
-- optional restore for the Unite bug (stuck on 1 phase)
-- optional web UI restart button
-
-evcc should own charging logic. This bridge only adapts Home Assistant entities to the charger Modbus registers — and puts the registers back the way it found them when it leaves.
+**What it does:** expose the charger to evcc (template or custom charger),
+optional 1-phase help, Unite-bug restore and web-UI reboot. When the bridge
+leaves, it puts the charger's registers back the way it found them.
+**What it does not do:** no solar logic, no DLB, no automatic phase switching,
+no cloud, no OCPP; evcc owns all charging decisions.
 
 Available in **English and Dutch** — Home Assistant picks the user's language.
 
