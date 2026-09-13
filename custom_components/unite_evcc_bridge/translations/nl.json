@@ -144,7 +144,7 @@
         "menu_options": {
           "charge": "Laden",
           "advanced": "Geavanceerd",
-          "reboot": "Lader herstarten",
+          "reboot": "Web-UI",
           "save": "Opslaan en sluiten",
           "connection": "Verbinding"
         }

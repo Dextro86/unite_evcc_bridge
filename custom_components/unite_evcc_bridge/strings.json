@@ -144,7 +144,7 @@
         "menu_options": {
           "charge": "Charging",
           "advanced": "Advanced",
-          "reboot": "Restart (web UI)",
+          "reboot": "Web UI",
           "save": "Save & close",
           "connection": "Connection"
         }

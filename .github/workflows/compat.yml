@@ -1,0 +1,28 @@
+# Canary against moving dependencies.
+#
+# Runs the test suite weekly (and on demand) with the LATEST pymodbus/pytest
+# instead of pinned versions. If pymodbus ships a breaking change, this goes
+# red ~1-2 weeks before end users hit it through a Home Assistant upgrade.
+# Green runs are silent; a red run mails the repo owner via GitHub.
+name: compat
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: # manual "Run workflow" button
+
+jobs:
+  pytest-latest-deps:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install latest dependencies
+        run: pip install pymodbus aiohttp pytest
+      - name: Run test suite
+        run: python -m pytest tests/ -q
