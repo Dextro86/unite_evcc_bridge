@@ -399,7 +399,7 @@ phases1p3p:
   headers:
     - Authorization: Bearer <TOKEN>
     - Content-Type: application/json
-  body: '{"entity_id": "select.unite_evcc_bridge_phase_mode", "value": "${phases1p3p}"}'
+  body: '{"entity_id": "select.unite_evcc_bridge_phase_mode", "option": "${phases1p3p}"}'
 tos: true
 ```
 
