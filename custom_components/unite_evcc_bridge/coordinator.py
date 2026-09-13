@@ -29,7 +29,7 @@ from .const import (
     DOMAIN,
 )
 from homeassistant.helpers.storage import Store
-from .rest_client import UniteRestError, async_restore_three_phase
+from .rest_client import UnitePhpRestClient, UniteRestError, async_restore_three_phase, async_set_lockable_cable
 from .modbus import WebastoBridgeClient
 from .models import ChargerSnapshot, normalize_current_a
 from .registers import CURRENT_LIMIT, PHASE_SWITCH
@@ -94,6 +94,9 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self.recovery_status = _RECOVERY_IDLE
         self.recovery_remaining_s = 0
         self._initialized_connection_epoch = 0
+        # Lockable-cable installation setting (web UI). None = unknown
+        # (no web UI login, or the firmware lacks the setting).
+        self.lockable_cable: bool | None = None
         self._command_lock = asyncio.Lock()
         self._recovery_task: asyncio.Task[None] | None = None
         self._recovery_attempted = False
@@ -291,6 +294,63 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         except Exception:  # noqa: BLE001 - shutdown must still close the client
             _LOGGER.exception("Baseline restore on shutdown failed")
         await self.client.async_close()
+
+    def _webconfig_client(self) -> UnitePhpRestClient | None:
+        """Webconfig client when the web UI login is configured, else None."""
+        o = self.entry.options
+        if not o.get(CONF_REST_ENABLED, DEFAULT_REST_ENABLED):
+            return None
+        return UnitePhpRestClient(
+            o.get(CONF_HOST, self.entry.data.get(CONF_HOST, "")),
+            o.get(CONF_REST_USERNAME, DEFAULT_REST_USERNAME),
+            o.get(CONF_REST_PASSWORD, ""),
+        )
+
+    async def async_refresh_lockable_cable(self) -> None:
+        """Read the lockable-cable installation setting (best effort)."""
+        client = self._webconfig_client()
+        if client is None:
+            return
+        try:
+            value = await client.get_lockable_cable()
+        except UniteRestError as err:
+            _LOGGER.debug("Could not read lockable-cable setting: %s", err)
+            return
+        if value is not None and value != self.lockable_cable:
+            self.lockable_cable = value
+            self.async_update_listeners()
+
+    async def async_set_lockable_cable(self, enabled: bool) -> None:
+        """Write the lockable-cable setting and verify by read-back.
+
+        Writes prefer the JSON config API with webconfig fallback; verification
+        reads back over webconfig (the JSON API has no read endpoint). When no
+        read-back is possible, the acknowledged write stands.
+        """
+        o = self.entry.options
+        if not o.get(CONF_REST_ENABLED, DEFAULT_REST_ENABLED):
+            raise UniteRestError("Web UI login is not configured")
+        route = await async_set_lockable_cable(
+            async_get_clientsession(self.hass),
+            o.get(CONF_HOST, self.entry.data.get(CONF_HOST, "")),
+            o.get(CONF_REST_USERNAME, DEFAULT_REST_USERNAME),
+            o.get(CONF_REST_PASSWORD, ""),
+            enabled,
+        )
+        value: bool | None = None
+        php = self._webconfig_client()
+        if php is not None:
+            try:
+                value = await php.get_lockable_cable()
+            except UniteRestError as err:
+                _LOGGER.debug("Could not verify the lockable-cable setting: %s", err)
+        if value is None:
+            _LOGGER.debug("Set lockable cable via %s without read-back", route)
+            value = enabled
+        self.lockable_cable = value
+        self.async_update_listeners()
+        if value != enabled:
+            raise UniteRestError("Charger did not take the lockable-cable setting")
 
     async def async_restore_baseline_on_exit(self) -> None:
         """Write the captured pre-integration values back (best effort).

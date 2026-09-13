@@ -24,6 +24,7 @@ async def async_setup_entry(
         [
             UniteEvccConnectionSensor(coordinator, entry.entry_id),
             UniteEvccPhaseMismatchSensor(coordinator, entry.entry_id),
+            UniteEvccCableLockedSensor(coordinator, entry.entry_id),
         ]
     )
 
@@ -77,3 +78,18 @@ class UniteEvccPhaseMismatchSensor(WebastoEvccEntity, BinarySensorEntity):
         # Routed through the coordinator so the "3-phase actually requested" gate
         # is applied (a resting 405=3 on a 1-phase car is not a mismatch).
         return self.coordinator.phase_mismatch()
+
+
+class UniteEvccCableLockedSensor(WebastoEvccEntity, BinarySensorEntity):
+    """Whether the wallbox has locked the cable (register 1004 == 3)."""
+
+    _attr_translation_key = "cable_locked"
+    _attr_icon = "mdi:lock"
+
+    def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, "cable_locked")
+
+    @property
+    def is_on(self) -> bool:
+        data = self.coordinator.data
+        return bool(data and data.cable_state == 3)

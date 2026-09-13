@@ -109,6 +109,9 @@
       "connection": {
         "name": "Verbinding"
       },
+      "cable_locked": {
+        "name": "Kabel vergrendeld"
+      },
       "phase_mismatch": {
         "name": "Fase-mismatch"
       }
@@ -116,6 +119,9 @@
     "switch": {
       "charging_enabled": {
         "name": "Laden"
+      },
+      "lockable_cable": {
+        "name": "Vergrendelbare kabel"
       }
     },
     "number": {

@@ -109,6 +109,9 @@
       "connection": {
         "name": "Connection"
       },
+      "cable_locked": {
+        "name": "Cable locked"
+      },
       "phase_mismatch": {
         "name": "Phase mismatch"
       }
@@ -116,6 +119,9 @@
     "switch": {
       "charging_enabled": {
         "name": "Charging"
+      },
+      "lockable_cable": {
+        "name": "Lockable cable"
       }
     },
     "number": {

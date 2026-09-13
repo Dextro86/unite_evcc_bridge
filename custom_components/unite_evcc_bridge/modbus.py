@@ -151,10 +151,45 @@ class WebastoBridgeClient:
 
     async def _optional_int(self, register: Register) -> int | None:
         try:
-            return int(await self.read(register))
+            return int(self._decode(register, await self._read_once(register)))
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Optional register %s unavailable: %s", register.name, err)
             return None
+
+    async def _read_once(self, register: Register) -> list[int]:
+        """Single read attempt: no retries, no sleep, never disconnects.
+
+        Used by optional reads, where a missing register is routine (old
+        firmware) rather than an outage. A genuine outage still surfaces
+        through the mandatory block reads, which keep their retry path.
+        """
+        async with self._lock:
+            await self._ensure_connected_locked()
+            assert self._client is not None
+            method = (
+                self._client.read_input_registers
+                if register.register_type == RegisterType.INPUT
+                else self._client.read_holding_registers
+            )
+            try:
+                response = await self._request(
+                    method, address=register.address, count=register.count
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:  # noqa: BLE001
+                self.stats.read_failures += 1
+                if isinstance(err, asyncio.TimeoutError):
+                    self.stats.timeouts += 1
+                self.stats.last_error = str(err)
+                raise ModbusError(f"read {register.name} failed: {err}") from err
+            self._raise_for_error(
+                response, f"read {register.register_type.value}@{register.address}"
+            )
+            self.stats.connected = True
+            self.stats.last_ok = monotonic()
+            self.stats.last_error = None
+            return list(response.registers)
 
     async def _optional_string(self, register: Register) -> str | None:
         """Read an ASCII string register; None when unavailable or empty."""

@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import CONF_REST_ENABLED, DEFAULT_REST_ENABLED, DOMAIN
 from .coordinator import WebastoEvccCoordinator
 from .entity import WebastoEvccEntity
 
@@ -16,7 +16,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: WebastoEvccCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([WebastoChargingEnabledSwitch(coordinator, entry.entry_id)])
+    async_add_entities([
+        WebastoChargingEnabledSwitch(coordinator, entry.entry_id),
+        WebastoLockableCableSwitch(coordinator, entry.entry_id),
+    ])
 
 
 class WebastoChargingEnabledSwitch(WebastoEvccEntity, SwitchEntity):
@@ -38,3 +41,34 @@ class WebastoChargingEnabledSwitch(WebastoEvccEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         await self.coordinator.async_set_enabled(False)
+
+
+class WebastoLockableCableSwitch(WebastoEvccEntity, SwitchEntity):
+    """Whether the cable may lock (installation setting over the web UI)."""
+
+    _attr_translation_key = "lockable_cable"
+
+    def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, "lockable_cable")
+
+    @property
+    def available(self) -> bool:
+        data = self.coordinator.data
+        return bool(
+            data
+            and data.available
+            and self.coordinator.entry.options.get(
+                CONF_REST_ENABLED, DEFAULT_REST_ENABLED
+            )
+            and self.coordinator.lockable_cable is not None
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.lockable_cable
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self.coordinator.async_set_lockable_cable(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self.coordinator.async_set_lockable_cable(False)
