@@ -32,6 +32,7 @@ from .registers import (
     VOLTAGE_L1,
     VOLTAGE_L2,
     VOLTAGE_L3,
+    decode_modbus_string,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -198,8 +199,8 @@ class WebastoBridgeClient:
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Optional register %s unavailable: %s", register.name, err)
             return None
-        raw = b"".join(int(r).to_bytes(2, "big") for r in registers)
-        return raw.decode("ascii", errors="ignore").strip("\x00 ").strip() or None
+        raw = [int(r) for r in registers]
+        return decode_modbus_string(raw) or None
 
     async def try_read_optional_string(self, register: Register) -> tuple[str | None, bool]:
         """Best-effort string read of an optional register.
@@ -252,12 +253,12 @@ class WebastoBridgeClient:
                     "skipping RFID reads on this connection"
                 )
                 return None, False
-            raw = b"".join(int(r).to_bytes(2, "big") for r in response.registers)
+            raw = [int(r) for r in response.registers]
             self._rfid_probe.note_ok()
             self.stats.connected = True
             self.stats.last_ok = monotonic()
             self.stats.last_error = None
-            return raw.decode("ascii", errors="ignore").strip("\x00 ").strip() or None, False
+            return decode_modbus_string(raw) or None, False
 
     async def _read_registers(self, register: Register) -> list[int]:
         return await self._read_block(register.register_type, register.address, register.count)

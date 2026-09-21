@@ -51,11 +51,17 @@ from .const import (
     MIN_POLL_INTERVAL,
 )
 from .modbus import ModbusError, WebastoBridgeClient
-from .registers import CHARGING_STATE
+from .registers import CHARGING_STATE, SERIAL_NUMBER
 from .rest_client import UniteRestAuthError, UniteRestError, async_build_rest_client
 
 
-async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
+async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> str:
+    """Check the connection; return the charger serial ("" when unreadable).
+
+    The serial is read with retries: a charger that is still booting may
+    answer with empty registers on the first read, and without retries the
+    entry falls back to a host unique_id that duplicates on IP change.
+    """
     client = WebastoBridgeClient(
         data[CONF_HOST],
         int(data[CONF_PORT]),
@@ -64,6 +70,12 @@ async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
     try:
         async with asyncio.timeout(10):
             await client.read(CHARGING_STATE)
+        for attempt in range(3):
+            serial = await client._optional_string(SERIAL_NUMBER)
+            if serial:
+                return serial
+            await asyncio.sleep(2)
+        return ""
     finally:
         await client.async_close()
 
@@ -111,15 +123,15 @@ class WebastoEvccBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
-            await self.async_set_unique_id(user_input[CONF_HOST])
-            self._abort_if_unique_id_configured()
             try:
-                await _validate_input(self.hass, user_input)
+                serial = await _validate_input(self.hass, user_input)
             except (ModbusError, OSError, asyncio.TimeoutError):
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
                 errors["base"] = "unknown"
             else:
+                await self.async_set_unique_id(serial or user_input[CONF_HOST])
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=user_input.get(CONF_NAME) or "Unite EVCC Bridge",
                     data=user_input,

@@ -30,6 +30,7 @@ from .const import (
 )
 from .coordinator import WebastoEvccCoordinator
 from .modbus import WebastoBridgeClient
+from .registers import SERIAL_NUMBER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Initial update failed; %s will keep retrying: %s", DOMAIN, err)
 
+    await _async_maybe_repair_unique_id(hass, entry, client)
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -97,6 +100,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if coordinator.data is None:
         hass.async_create_task(coordinator.async_request_refresh())
     return True
+
+
+async def _async_maybe_repair_unique_id(
+    hass: HomeAssistant, entry: ConfigEntry, client: WebastoBridgeClient
+) -> None:
+    """One-time repair for entries created with the host as unique_id.
+
+    A host ID duplicates when the charger's IP changes (or a retried setup
+    read the serial the second time). Straighten to the serial once known;
+    if the serial entry already exists this one is the duplicate and the
+    user is told to remove one.
+    """
+    legacy = entry.data.get(CONF_HOST, "")
+    if not legacy or entry.unique_id != legacy:
+        return
+    try:
+        serial = await client._optional_string(SERIAL_NUMBER)
+    except Exception:  # noqa: BLE001 - repair is best effort
+        return
+    serial = (serial or "").strip()
+    if not serial or serial == legacy:
+        return
+    clash = [
+        e
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != entry.entry_id and e.unique_id == serial
+    ]
+    if clash:
+        _LOGGER.warning(
+            "Two integration entries point at the same charger (serial %s); "
+            "remove one under Settings -> Devices & Services",
+            serial,
+        )
+        return
+    hass.config_entries.async_update_entry(entry, unique_id=serial)
+    _LOGGER.info("Repaired integration entry to use the charger serial")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

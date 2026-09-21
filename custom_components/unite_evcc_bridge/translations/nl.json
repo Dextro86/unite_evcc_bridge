@@ -78,16 +78,16 @@
         "name": "Spanning L3"
       },
       "requested_phase": {
-        "name": "Fase"
+        "name": "Gevraagde fase"
       },
       "hardware_current_limit": {
         "name": "Hardware laadstroomlimiet"
       },
       "register_404": {
-        "name": "Register 404"
+        "name": "Fasemogelijkheid (404)"
       },
       "register_405": {
-        "name": "Register 405"
+        "name": "Fasekeuze (405)"
       },
       "phase_recovery_status": {
         "name": "Fase-herstel status"
@@ -110,7 +110,7 @@
         "name": "Verbinding"
       },
       "cable_locked": {
-        "name": "Kabel vergrendeld"
+        "name": "Stekker vast"
       },
       "phase_mismatch": {
         "name": "Fase-mismatch"
@@ -121,7 +121,7 @@
         "name": "Laden"
       },
       "lockable_cable": {
-        "name": "Vergrendelbare kabel"
+        "name": "Kabelvergrendeling"
       }
     },
     "number": {
@@ -134,7 +134,7 @@
         "name": "Herstart"
       },
       "restore_three_phase": {
-        "name": "3-fase-config herstellen"
+        "name": "3-fasen-instelling herstellen"
       }
     },
     "select": {
