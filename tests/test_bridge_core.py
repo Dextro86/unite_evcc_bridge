@@ -373,6 +373,24 @@ def test_restore_three_phase_falls_back_to_webconfig(monkeypatch) -> None:
     assert calls == [0, 1]
 
 
+def test_restore_three_phase_server_error_falls_back_to_webconfig(monkeypatch) -> None:
+    calls = []
+
+    async def fake_php_set(self, value):
+        calls.append(value)
+
+    monkeypatch.setattr(UnitePhpRestClient, "set_current_limiter_phase", fake_php_set)
+    # JSON login works but the config endpoint 500s (twice: write + retry)
+    # -> webconfig
+    session = BridgeRestoreSession({443}, config_status=500, webconfig_body=_LOGIN_FORM)
+    route = asyncio.run(
+        async_restore_three_phase(session, "10.0.0.5", "admin", "x", settle_s=0)
+    )
+    assert route == "webconfig"
+    assert calls == [0, 1]  # toggle ran on the webconfig client
+    assert len(session.config_posts) == 2  # one write + one retry, then fallback
+
+
 # --- 3-phase restore gating (1-phase installs must not get the button) ------
 def test_is_three_phase_install() -> None:
     # explicit user setting wins in both directions

@@ -183,3 +183,21 @@ def test_set_lockable_cable_falls_back_to_webconfig(monkeypatch) -> None:
     )
     assert route == "webconfig"
     assert calls == [False]
+
+
+def test_set_lockable_cable_server_error_falls_back_to_webconfig(monkeypatch) -> None:
+    calls: list[bool] = []
+
+    async def fake_php_set(self, enabled):
+        calls.append(enabled)
+
+    monkeypatch.setattr(UnitePhpRestClient, "set_lockable_cable", fake_php_set)
+    # JSON login works but the config endpoint 500s (twice: write + retry)
+    # -> webconfig
+    session = _RouteSession({443}, config_status=500, webconfig_body=_LOGIN_FORM)
+    route = asyncio.run(
+        async_set_lockable_cable(session, "10.0.0.5", "admin", "x", True)  # type: ignore[arg-type]
+    )
+    assert route == "webconfig"
+    assert calls == [True]
+    assert len(session.config_posts) == 2  # one write + one retry, then fallback

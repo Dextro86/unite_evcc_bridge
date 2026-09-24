@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 import json
+import logging
 import re
 from typing import Any
 
 import aiohttp
 
 from .const import REST_TIMEOUT_S
+
+_LOGGER = logging.getLogger(__name__)
 
 _PROBE_TIMEOUT = aiohttp.ClientTimeout(total=8)
 # CSRF token the legacy webconfig portal puts in every form.
@@ -35,6 +38,16 @@ class UniteRestEndpointMissing(UniteRestError):
 class UniteRestValidationError(UniteRestError):
     """A config write was rejected (HTTP 422). Used to retry with the other
     payload shape, which varies across firmware."""
+
+
+class UniteRestServerError(UniteRestError):
+    """The charger web server failed the request (HTTP 5xx).
+
+    Seen on firmware whose JSON login works but whose ``configuration-updates``
+    endpoint crashes instead of applying the write. Callers treat this like a
+    missing endpoint: retry once (a 500 can be transient overload), then fall
+    back to the webconfig portal.
+    """
 
 
 # Installation phase-config field: JSON API key + webconfig select name.
@@ -122,6 +135,10 @@ class UniteRestClient:
             )
         if response["status"] == 422:
             raise UniteRestValidationError(f"Config write to {path} rejected (HTTP 422)")
+        if response["status"] >= 500:
+            raise UniteRestServerError(
+                f"Charger web server failed {path} (HTTP {response['status']})"
+            )
         if not 200 <= response["status"] < 300:
             raise UniteRestError(f"REST request {path} failed with HTTP {response['status']}")
         return response["body"]
@@ -394,6 +411,19 @@ async def async_restart_charger(
     )
 
 
+async def _write_with_server_retry(write, *args) -> None:
+    """Run a JSON config write, retrying a server error once.
+
+    A HTTP 500 can be transient overload, so one immediate retry is cheap.
+    A persistent 500 propagates as UniteRestServerError and the caller falls
+    back to the webconfig portal.
+    """
+    try:
+        await write(*args)
+    except UniteRestServerError:
+        await write(*args)
+
+
 async def async_restore_three_phase(
     session: aiohttp.ClientSession,
     host: str,
@@ -411,17 +441,27 @@ async def async_restore_three_phase(
     Auth failures propagate.
     """
     json_endpoint_missing = False
+    json_server_error = False
     for port in JSON_API_PORTS:
         if not await _probe_json_api(session, host, port):
             continue
         client = UniteRestClient(host, username, password, session, port=port)
         try:
-            await client.set_current_limiter_phase(0)
+            await _write_with_server_retry(client.set_current_limiter_phase, 0)
+            await asyncio.sleep(settle_s)
+            await _write_with_server_retry(client.set_current_limiter_phase, 1)
         except UniteRestEndpointMissing:
             json_endpoint_missing = True  # login works but no config endpoint here
             break
-        await asyncio.sleep(settle_s)
-        await client.set_current_limiter_phase(1)
+        except UniteRestServerError as err:
+            json_server_error = True  # endpoint crashes; try webconfig instead
+            _LOGGER.debug(
+                "JSON config write on %s:%s failed (%s), trying webconfig",
+                host,
+                port,
+                err,
+            )
+            break
         return f"json:{port}"
 
     if await _has_webconfig(session, host):
@@ -431,10 +471,10 @@ async def async_restore_three_phase(
         await php.set_current_limiter_phase(1)
         return "webconfig"
 
-    if json_endpoint_missing:
+    if json_endpoint_missing or json_server_error:
         raise UniteRestError(
-            "The JSON API has no configuration endpoint on this firmware and no "
-            "webconfig portal was found to fall back to"
+            "The JSON API has no working configuration endpoint on this firmware "
+            "and no webconfig portal was found to fall back to"
         )
     raise UniteRestError(
         "No reachable web UI found (tried the JSON API on 443/4443 and the HTTP webconfig portal)"
@@ -455,14 +495,24 @@ async def async_set_lockable_cable(
     """
     value = 1 if enabled else 0
     json_endpoint_missing = False
+    json_server_error = False
     for port in JSON_API_PORTS:
         if not await _probe_json_api(session, host, port):
             continue
         client = UniteRestClient(host, username, password, session, port=port)
         try:
-            await client.set_lockable_cable(value)
+            await _write_with_server_retry(client.set_lockable_cable, value)
         except UniteRestEndpointMissing:
             json_endpoint_missing = True  # login works but no config endpoint here
+            break
+        except UniteRestServerError as err:
+            json_server_error = True  # endpoint crashes; try webconfig instead
+            _LOGGER.debug(
+                "JSON config write on %s:%s failed (%s), trying webconfig",
+                host,
+                port,
+                err,
+            )
             break
         return f"json:{port}"
 
@@ -470,10 +520,10 @@ async def async_set_lockable_cable(
         await UnitePhpRestClient(host, username, password).set_lockable_cable(enabled)
         return "webconfig"
 
-    if json_endpoint_missing:
+    if json_endpoint_missing or json_server_error:
         raise UniteRestError(
-            "The JSON API has no configuration endpoint on this firmware and no "
-            "webconfig portal was found to fall back to"
+            "The JSON API has no working configuration endpoint on this firmware "
+            "and no webconfig portal was found to fall back to"
         )
     raise UniteRestError(
         "No reachable web UI found (tried the JSON API on 443/4443 and the HTTP webconfig portal)"
