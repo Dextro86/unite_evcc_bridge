@@ -37,6 +37,9 @@ SESSION_DURATION = Register("session_duration", 1508, count=2)
 SESSION_RFID = Register("session_rfid", 1516, count=15)
 # Charger identity for stable config-entry IDs (serial, never host:port).
 SERIAL_NUMBER = Register("serial_number", 100, count=25)
+# Firmware version string, read once at setup (same register as the charger
+# integration; tolerantly decoded). Absent on some firmware -> None.
+FIRMWARE_VERSION = Register("firmware_version", 230, count=50)
 PHASE_CAPABILITY = Register("phase_capability", 404)
 
 

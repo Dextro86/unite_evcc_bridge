@@ -77,7 +77,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Initial update failed; %s will keep retrying: %s", DOMAIN, err)
 
-    await _async_maybe_repair_unique_id(hass, entry, client)
+    # Read static identity (serial + firmware) once at setup, best effort.
+    await coordinator.async_read_device_info()
+
+    await _async_maybe_repair_unique_id(hass, entry, coordinator)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -103,7 +106,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_maybe_repair_unique_id(
-    hass: HomeAssistant, entry: ConfigEntry, client: WebastoBridgeClient
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: WebastoEvccCoordinator
 ) -> None:
     """One-time repair for entries created with the host as unique_id.
 
@@ -115,10 +118,12 @@ async def _async_maybe_repair_unique_id(
     legacy = entry.data.get(CONF_HOST, "")
     if not legacy or entry.unique_id != legacy:
         return
-    try:
-        serial = await client._optional_string(SERIAL_NUMBER)
-    except Exception:  # noqa: BLE001 - repair is best effort
-        return
+    serial = coordinator.device_serial_number
+    if not serial:
+        try:
+            serial = await coordinator.client._optional_string(SERIAL_NUMBER)
+        except Exception:  # noqa: BLE001 - repair is best effort
+            return
     serial = (serial or "").strip()
     if not serial or serial == legacy:
         return

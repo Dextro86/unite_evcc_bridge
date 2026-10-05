@@ -29,27 +29,30 @@ from .const import (
     DOMAIN,
 )
 from homeassistant.helpers.storage import Store
+from .eventlog import EventLog
 from .rest_client import UnitePhpRestClient, UniteRestError, async_restore_three_phase, async_set_lockable_cable
 from .modbus import WebastoBridgeClient
 from .models import ChargerSnapshot, normalize_current_a
-from .registers import CURRENT_LIMIT, PHASE_SWITCH
+from .phase import (
+    _RECOVERY_ABORTED,
+    _RECOVERY_COMPLETE,
+    _RECOVERY_DWELLING,
+    _RECOVERY_IDLE,
+    _RECOVERY_OBSERVING,
+    _RECOVERY_RESUMING,
+    PhaseRecoveryMixin,
+)
+from .registers import CURRENT_LIMIT, PHASE_SWITCH, FIRMWARE_VERSION, SERIAL_NUMBER
 from .safety import capture_baseline, program_connection_ownership, restore_baseline, write_heartbeat
 
 _LOGGER = logging.getLogger(__name__)
-
-_RECOVERY_IDLE = "idle"
-_RECOVERY_OBSERVING = "observing_3p"
-_RECOVERY_DWELLING = "dwelling"
-_RECOVERY_RESUMING = "resuming"
-_RECOVERY_COMPLETE = "complete"
-_RECOVERY_ABORTED = "aborted"
 
 
 def effective_poll_interval_s(poll_interval: int, failsafe_timeout: int) -> int:
     return min(poll_interval, max(3, failsafe_timeout // 2))
 
 
-class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
+class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSnapshot]):
     def __init__(
         self,
         hass,
@@ -100,6 +103,8 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self._command_lock = asyncio.Lock()
         self._recovery_task: asyncio.Task[None] | None = None
         self._recovery_attempted = False
+        self._downshift_attempted = False  # latch: one escalation per 1P request
+        self._guard_mismatches = 0  # trede 1: consecutive wish-vs-405 polls
         self._recovery_deadline: float | None = None
         self._buffer_commands = False
         self._baseline_store = Store(hass, 1, f"{DOMAIN}_baseline_{entry.entry_id}")
@@ -114,6 +119,25 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self.last_rest_restart_at = None
         self.last_rest_restart_result: str | None = None
         self.last_rest_restart_reason: str | None = None
+        # Static identity, read once at setup (best effort, tolerant decoding).
+        self.device_serial_number: str | None = None
+        self.device_firmware_version: str | None = None
+        # Diagnostics-only event ring buffer (never read back for control).
+        self.event_log = EventLog()
+
+    def record_event(self, kind: str, detail: str) -> None:
+        """Append a diagnostics-only event to the in-memory ring buffer."""
+        self.event_log.record(kind, detail)
+
+    async def async_read_device_info(self) -> None:
+        """Read static identity once at setup (best effort).
+
+        Same hardware and register map as the charger integration: serial and
+        firmware version are plain Modbus strings decoded tolerantly (ASCII or
+        NUL-interleaved UTF-16). Missing fields stay None and never fail setup.
+        """
+        self.device_serial_number = await self.client.read_optional_string_once(SERIAL_NUMBER)
+        self.device_firmware_version = await self.client.read_optional_string_once(FIRMWARE_VERSION)
 
     async def _async_update_data(self) -> ChargerSnapshot:
         try:
@@ -127,15 +151,13 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
 
         if self.requested_phase is None:
             self.requested_phase = data.phase_mode
-        if self.current_intent is None:
-            self.current_intent = data.current_limit_a
-        if self.enabled_intent is None:
-            self.enabled_intent = data.enabled
         just_connected = data.vehicle_connected and not self._vehicle_was_connected
         just_unplugged = self._vehicle_was_connected and not data.vehicle_connected
         self._vehicle_was_connected = data.vehicle_connected
         if not data.vehicle_connected:
             self._recovery_attempted = False
+            self._downshift_attempted = False
+            self._guard_mismatches = 0
         self._maybe_auto_restore_phase(data, just_unplugged)
         # A new session: the wallbox applies its own (minimum) charge current, so
         # put back what evcc actually asked for - 0 A when it wants no charging.
@@ -144,6 +166,12 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
                 await self.async_reassert_current("a new session", refresh=False)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Could not re-assert current at session start: %s", err)
+            try:
+                await self._async_reassert_phase(context="session")
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Could not re-assert phase at session start: %s", err)
+
+        await self._guard_phase_setting(data)
 
         try:
             await write_heartbeat(self.client)
@@ -215,7 +243,9 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
                 "(will retry at the next unplug): %s",
                 err,
             )
+            self.record_event("phase_restore_failed", str(err))
             return
+        self.record_event("phase_restore", f"via {route}")
         _LOGGER.info(
             "Vehicle unplugged; re-applied the 3-phase config via %s so the next "
             "session starts clean",
@@ -229,6 +259,10 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
             and self._initialized_connection_epoch == self.client.stats.connection_epoch
         ):
             return
+
+        self.record_event(
+            "reconnect", f"connection epoch {self.client.stats.connection_epoch}"
+        )
 
         current = self.current_intent
         if self._buffer_commands or self.enabled_intent is False:
@@ -268,24 +302,48 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         self._initialized_connection_epoch = self.client.stats.connection_epoch
 
     async def _async_resync_phase_after_reconnect(self) -> None:
+        """Re-assert the requested phase after a Modbus reconnect."""
+        await self._async_reassert_phase(context="reconnect")
+
+    async def _async_reassert_phase(self, *, context: str) -> None:
+        """Read register 405 and write the requested phase back if it drifted.
+
+        Read-then-write, idempotent: only when evcc asked for an explicit 1P/3P
+        and the measured register differs do we write. ``context`` only selects
+        the event kind recorded on an actual write ("reconnect" vs "session").
+        """
         if self.requested_phase not in {"1", "3"}:
             return
 
         desired_raw = 0 if self.requested_phase == "1" else 1
         try:
-            actual_raw = int(await self.client.read(PHASE_SWITCH))
+            measured_raw = int(await self.client.read(PHASE_SWITCH))
         except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Could not read phase switch after reconnect: %s", err)
-            actual_raw = None
+            _LOGGER.debug("Could not read phase switch (%s): %s", context, err)
+            return
 
-        if actual_raw == desired_raw:
+        if measured_raw == desired_raw:
             return
 
         await self.client.write(PHASE_SWITCH, desired_raw)
-        _LOGGER.info(
-            "Reasserted phase switch after Modbus reconnect: %sP",
-            self.requested_phase,
-        )
+        if context == "session":
+            self.record_event(
+                "phase_reassert_session",
+                f"requested={self.requested_phase}P measured={measured_raw} "
+                f"written={desired_raw}",
+            )
+            _LOGGER.info(
+                "Reasserted phase switch at session start: %sP", self.requested_phase
+            )
+        else:
+            self.record_event(
+                "405_write",
+                f"reconnect reassert {self.requested_phase}P (reg={desired_raw})",
+            )
+            _LOGGER.info(
+                "Reasserted phase switch after Modbus reconnect: %sP",
+                self.requested_phase,
+            )
 
     async def async_shutdown(self) -> None:
         self._cancel_recovery()
@@ -373,8 +431,10 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
                 "Could not restore charger registers; recover manually: %s",
                 {key: baseline.get(key) for key in failed},
             )
+            self.record_event("baseline_restore_failed", str(failed))
         else:
             _LOGGER.info("Restored charger register baseline on exit")
+            self.record_event("baseline_restore", "ok")
 
     @property
     def rest_restarting(self) -> bool:
@@ -416,7 +476,9 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         if self._buffer_commands or self.enabled_intent is False:
             current = 0
         if current is None:
-            current = self.resume_current
+            # evcc has not commanded anything yet: hold 0 A, never resume_current.
+            # A fresh session must not start charging before evcc has an intent.
+            current = 0
         async with self._command_lock:
             await self.client.write(CURRENT_LIMIT, current)
         _LOGGER.info("Re-asserted charge current after %s: %sA", reason, current)
@@ -466,112 +528,19 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
         if option == "1":
             self._recovery_attempted = False
             self._cancel_recovery()
+        else:
+            self._downshift_attempted = False  # a 3P request re-arms downshift
         async with self._command_lock:
             await self.client.write(PHASE_SWITCH, 0 if option == "1" else 1)
+        self.record_event(
+            "405_write", f"evcc {option}P (reg={0 if option == '1' else 1})"
+        )
         await self.async_request_refresh()
         if option == "3":
             self._maybe_start_phase_recovery()
+        else:
+            self._maybe_start_phase_downshift()
 
-    def _maybe_start_phase_recovery(self) -> None:
-        if (
-            not self.phase_recovery_enabled
-            or self._recovery_attempted
-            or self._recovery_task is not None
-        ):
-            return
-
-        data = self.data
-        if data is None or not data.available or not data.vehicle_connected:
-            return
-        if not data.charging_active:
-            return
-        if data.phase_mode != "1" and not self._measured_single_phase(data):
-            return
-
-        self._recovery_task = self.hass.async_create_task(self._run_phase_recovery())
-
-    async def _run_phase_recovery(self) -> None:
-        try:
-            self._set_recovery_status(_RECOVERY_OBSERVING, self.phase_recovery_observe)
-            await self._countdown(self.phase_recovery_observe)
-            data = self.data
-            if data is None or not data.available or not data.vehicle_connected:
-                self._finish_recovery(_RECOVERY_ABORTED, "vehicle disconnected during observation")
-                return
-            if not data.charging_active or self._measured_three_phase(data):
-                self._finish_recovery(_RECOVERY_COMPLETE, "measured 3p during observation")
-                return
-
-            self._recovery_attempted = True
-            self._buffer_commands = True
-            self._pending_current = self.current_intent or self.resume_current
-            self._pending_enabled = self.enabled_intent if self.enabled_intent is not None else True
-
-            _LOGGER.info(
-                "1->3 phase recovery: live switch did not result in measured 3P within %ss; "
-                "holding charge current at 0A for %ss",
-                self.phase_recovery_observe,
-                self.phase_recovery_dwell,
-            )
-            async with self._command_lock:
-                await self.client.write(CURRENT_LIMIT, 0)
-            await self.async_request_refresh()
-
-            self._set_recovery_status(_RECOVERY_DWELLING, self.phase_recovery_dwell)
-            await self._countdown(self.phase_recovery_dwell)
-            data = self.data
-            if data is None or not data.available or not data.vehicle_connected:
-                self._finish_recovery(_RECOVERY_ABORTED, "vehicle disconnected during dwell")
-                return
-
-            self._set_recovery_status(_RECOVERY_RESUMING, 0)
-            current = self.current_intent if self.current_intent is not None else self._pending_current
-            enabled = self.enabled_intent if self.enabled_intent is not None else self._pending_enabled
-            if enabled is False:
-                current = 0
-            if current is None:
-                current = self.resume_current
-            async with self._command_lock:
-                await self.client.write(CURRENT_LIMIT, current)
-            _LOGGER.info("1->3 phase recovery: resumed with %sA", current)
-            self._finish_recovery(_RECOVERY_COMPLETE, "dwell completed")
-            await self.async_request_refresh()
-        except asyncio.CancelledError:
-            if self.requested_phase == "1":
-                self._set_recovery_status(_RECOVERY_IDLE, 0)
-            else:
-                self._finish_recovery(_RECOVERY_ABORTED, "cancelled")
-            raise
-        except Exception:
-            _LOGGER.exception("1->3 phase recovery failed")
-            self._finish_recovery(_RECOVERY_ABORTED, "error")
-        finally:
-            self._buffer_commands = False
-            self._pending_current = None
-            self._pending_enabled = None
-            self._recovery_deadline = None
-            self._recovery_task = None
-
-    async def _countdown(self, seconds: int) -> None:
-        self._recovery_deadline = time.monotonic() + seconds
-        while True:
-            remaining = max(0, int(round(self._recovery_deadline - time.monotonic())))
-            self.recovery_remaining_s = remaining
-            self.async_update_listeners()
-            if remaining <= 0:
-                return
-            await asyncio.sleep(min(1, remaining))
-
-    def _set_recovery_status(self, status: str, remaining_s: int) -> None:
-        self.recovery_status = status
-        self.recovery_remaining_s = remaining_s
-        self.async_update_listeners()
-
-    def _finish_recovery(self, status: str, reason: str) -> None:
-        self.last_recovery_at = dt_util.utcnow()
-        self.last_recovery_result = status
-        self.last_recovery_reason = reason
-        self._set_recovery_status(status, 0)
 
     def evcc_current_limit(self, data: ChargerSnapshot) -> int | None:
         return self.current_intent if self.current_intent is not None else data.current_limit_a
@@ -579,26 +548,3 @@ class WebastoEvccCoordinator(DataUpdateCoordinator[ChargerSnapshot]):
     def evcc_enabled(self, data: ChargerSnapshot) -> bool:
         return self.enabled_intent if self.enabled_intent is not None else data.enabled
 
-    def _cancel_recovery(self) -> None:
-        if self._recovery_task is not None:
-            self._recovery_task.cancel()
-            self._recovery_task = None
-        self._buffer_commands = False
-        self._pending_current = None
-        self._pending_enabled = None
-        self._set_recovery_status(_RECOVERY_IDLE, 0)
-
-    @staticmethod
-    def _measured_single_phase(data: ChargerSnapshot) -> bool:
-        l1 = data.current_l1_a or 0.0
-        l2 = data.current_l2_a or 0.0
-        l3 = data.current_l3_a or 0.0
-        return l1 >= 3.0 and l2 < 2.0 and l3 < 2.0
-
-    @staticmethod
-    def _measured_three_phase(data: ChargerSnapshot) -> bool:
-        return (
-            (data.current_l1_a or 0.0) >= 3.0
-            and (data.current_l2_a or 0.0) >= 3.0
-            and (data.current_l3_a or 0.0) >= 3.0
-        )

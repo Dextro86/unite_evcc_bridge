@@ -69,6 +69,8 @@ class WebastoEvccEntity(CoordinatorEntity[WebastoEvccCoordinator]):
             name="Unite EVCC Bridge",
             manufacturer="Webasto / Vestel",
             model="Unite / EVC-04",
+            sw_version=coordinator.device_firmware_version,
+            serial_number=coordinator.device_serial_number,
             # "Visit device" link on the device page -> opens the charger web UI.
             configuration_url=f"http://{coordinator.client.host}",
         )

@@ -161,13 +161,13 @@
         "data": {
           "max_current": "Maximum current",
           "grid_phases": "Charger connection",
-          "phase_recovery_enabled": "Help cars stuck on 1 phase",
+          "phase_recovery_enabled": "Help cars that don't follow phase switches",
           "phase_restore_on_unplug": "Restore for Unite bug (stuck on 1 phase)"
         },
         "data_description": {
           "max_current": "Normally 16 A (about 11 kW on 3 phases).",
           "grid_phases": "Single- or three-phase, as your electrician wired it. If unsure, check the charger's web UI. This setting also keeps the phase fixes below from running on the wrong installation.",
-          "phase_recovery_enabled": "Some cars don't pick up 3 phases by themselves after switching — then the charger pauses briefly so the car restarts on 3 phases. Interrupts charging briefly, so off by default.",
+          "phase_recovery_enabled": "Some cars don't pick up a phase switch by themselves — then the charger pauses briefly so the car restarts on the requested phases. Works both ways (1 to 3 and 3 to 1). Interrupts charging briefly, so off by default.",
           "phase_restore_on_unplug": "Works around a charger bug where a new session starts on 1 phase even though 3 phases are configured. After every unplug the charger is briefly set to 1 phase and back to 3 phases, forcing it to apply its own default. Requires the web UI login and a three-phase connection."
         }
       },
@@ -178,16 +178,16 @@
           "poll_interval": "Check-in frequency",
           "failsafe_current": "Backup current if contact is lost",
           "failsafe_timeout": "Waiting time before backup",
-          "phase_recovery_observe": "Watching time before 1-phase help",
-          "phase_recovery_dwell": "Pause length for 1-phase help",
+          "phase_recovery_observe": "Watching time before phase help",
+          "phase_recovery_dwell": "Pause length for phase help",
           "phase_restore_delay": "Waiting time after unplugging"
         },
         "data_description": {
           "poll_interval": "How often the charger is polled. Normally 10 s.",
           "failsafe_current": "The charger falls back to this if it hears nothing for a while. Normally 6 A; 0 A stops charging entirely.",
           "failsafe_timeout": "How long the silence may last before the backup kicks in. Normally 30 s.",
-          "phase_recovery_observe": "How long to watch before concluding the car is stuck on 1 phase. Normally 60 s.",
-          "phase_recovery_dwell": "How long charging pauses so the car restarts on 3 phases. Normally 121 s.",
+          "phase_recovery_observe": "How long to watch before concluding the car is stuck on the wrong phases. Normally 60 s.",
+          "phase_recovery_dwell": "How long charging pauses so the car restarts on the requested phases. Normally 121 s.",
           "phase_restore_delay": "Lets the charger finish the session. Plugging back in within this time cancels the restore. Normally 5 s."
         }
       },

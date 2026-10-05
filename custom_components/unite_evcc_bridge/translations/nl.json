@@ -161,13 +161,13 @@
         "data": {
           "max_current": "Maximale laadstroom",
           "grid_phases": "Netaansluiting lader",
-          "phase_recovery_enabled": "Auto's helpen die op 1 fase blijven hangen",
+          "phase_recovery_enabled": "Auto's helpen die de fasewissel niet volgen",
           "phase_restore_on_unplug": "Herstel voor Unite-bug (vast op 1 fase)"
         },
         "data_description": {
           "max_current": "Normaal 16A (ongeveer 11 kW bij 3 fasen).",
           "grid_phases": "1-fase of 3-fasen, zoals de elektricien hem heeft aangesloten. Bij twijfel: kijk in de web-UI van de lader. Deze instelling voorkomt ook dat de fase-oplossingen hieronder op een verkeerde installatie losgaan.",
-          "phase_recovery_enabled": "Sommige auto's pakken 3 fasen na het schakelen niet vanzelf op — dan pauzeert de lader even zodat de auto opnieuw op 3 fasen begint. Onderbreekt het laden kort, daarom staat dit standaard uit.",
+          "phase_recovery_enabled": "Sommige auto's pakken een fasewissel niet vanzelf op — dan pauzeert de lader even zodat de auto opnieuw op de gevraagde fasen begint. Werkt beide kanten op (1 naar 3 en 3 naar 1). Onderbreekt het laden kort, daarom staat dit standaard uit.",
           "phase_restore_on_unplug": "Omzeilt een laderbug waarbij een nieuwe sessie op 1 fase start terwijl er 3 fasen zijn ingesteld. Na elk afkoppelen wordt de lader kort op 1 fase en weer terug op 3 fasen gezet, zodat hij zijn eigen instelling opnieuw toepast. Vereist de web-UI-login en een 3-fasen-aansluiting."
         }
       },
@@ -178,16 +178,16 @@
           "poll_interval": "Hoe vaak contact",
           "failsafe_current": "Noodstroom bij wegvallen contact",
           "failsafe_timeout": "Wachttijd vóór noodstroom",
-          "phase_recovery_observe": "Kijktijd vóór 1-fase-hulp",
-          "phase_recovery_dwell": "Pauzeduur 1-fase-hulp",
+          "phase_recovery_observe": "Kijktijd vóór fasehulp",
+          "phase_recovery_dwell": "Pauzeduur fasehulp",
           "phase_restore_delay": "Wachttijd na afkoppelen"
         },
         "data_description": {
           "poll_interval": "Hoe vaak de lader wordt uitgelezen. Normaal 10 s.",
           "failsafe_current": "Hierop valt de lader terug als hij een tijdje niets hoort. Normaal 6A; 0A stopt het laden helemaal.",
           "failsafe_timeout": "Hoe lang de stilte mag duren voordat de noodstroom ingaat. Normaal 30 s.",
-          "phase_recovery_observe": "Hoe lang er gekeken wordt voordat vaststaat dat de auto op 1 fase hangt. Normaal 60 s.",
-          "phase_recovery_dwell": "Hoe lang het laden pauzeert zodat de auto opnieuw op 3 fasen begint. Normaal 121 s.",
+          "phase_recovery_observe": "Hoe lang er gekeken wordt voordat vaststaat dat de auto op de verkeerde fasen hangt. Normaal 60 s.",
+          "phase_recovery_dwell": "Hoe lang het laden pauzeert zodat de auto opnieuw op de gevraagde fasen begint. Normaal 121 s.",
           "phase_restore_delay": "Laat de lader de sessie afronden. Binnen deze tijd weer insteken annuleert het herstel. Normaal 5 s."
         }
       },

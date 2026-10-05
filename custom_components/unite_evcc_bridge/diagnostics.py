@@ -9,7 +9,7 @@ from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 
 from . import control as ctrl
-from .const import CONF_REST_PASSWORD, CONF_REST_USERNAME, DOMAIN
+from .const import CONF_REST_PASSWORD, CONF_REST_USERNAME, DOMAIN, integration_version
 from .coordinator import WebastoEvccCoordinator
 
 
@@ -38,6 +38,7 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     coordinator: WebastoEvccCoordinator | None = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     diagnostics: dict[str, Any] = {
+        "integration_version": integration_version(),
         "entry": {
             "domain": entry.domain,
             "title": entry.title,
@@ -50,6 +51,11 @@ async def async_get_config_entry_diagnostics(
     if coordinator is not None:
         stats = coordinator.client.stats
         data = coordinator.data
+        diagnostics["device"] = {
+            "firmware_version": coordinator.device_firmware_version,
+            "serial_number": coordinator.device_serial_number,
+        }
+        diagnostics["event_log"] = coordinator.event_log.as_list()
         diagnostics["runtime"] = {
             "configured_poll_interval": coordinator.configured_poll_interval,
             "effective_poll_interval": coordinator.effective_poll_interval,

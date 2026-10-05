@@ -202,6 +202,21 @@ class WebastoBridgeClient:
         raw = [int(r) for r in registers]
         return decode_modbus_string(raw) or None
 
+    async def read_optional_string_once(self, register: Register) -> str | None:
+        """Single-attempt tolerant string read for one-off setup identity reads.
+
+        Mirrors the charger integration's device-info read: one shot, no retry
+        storm, tolerant decoding (ASCII or NUL-interleaved UTF-16). Returns None
+        when the register is unsupported or empty, and never disconnects.
+        """
+        try:
+            registers = await self._read_once(register)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Optional register %s unavailable: %s", register.name, err)
+            return None
+        raw = [int(r) for r in registers]
+        return decode_modbus_string(raw) or None
+
     async def try_read_optional_string(self, register: Register) -> tuple[str | None, bool]:
         """Best-effort string read of an optional register.
 

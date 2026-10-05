@@ -1,6 +1,23 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 DOMAIN = "unite_evcc_bridge"
+
+
+def integration_version() -> str:
+    """Integration version from manifest.json (best effort).
+
+    Diagnostics shows this so a bug report tells us exactly which build it came
+    from. Never raises: a missing/unreadable manifest just yields "unknown".
+    """
+    try:
+        manifest = Path(__file__).resolve().parent / "manifest.json"
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        return str(data.get("version") or "unknown")
+    except Exception:  # noqa: BLE001 - diagnostics must never fail
+        return "unknown"
 
 CONF_UNIT_ID = "unit_id"
 CONF_SCAN_INTERVAL = "scan_interval"
