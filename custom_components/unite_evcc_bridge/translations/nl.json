@@ -84,13 +84,29 @@
         "name": "Hardware laadstroomlimiet"
       },
       "register_404": {
-        "name": "Fasemogelijkheid (404)"
+        "name": "Fasemogelijkheid (404)",
+        "state": {
+          "1_phase": "1 fase",
+          "3_phases": "3 fasen"
+        }
       },
       "register_405": {
-        "name": "Fasekeuze (405)"
+        "name": "Fasekeuze (405)",
+        "state": {
+          "1_phase": "1 fase",
+          "3_phases": "3 fasen"
+        }
       },
       "phase_recovery_status": {
-        "name": "Fase-herstel status"
+        "name": "Fase-herstel status",
+        "state": {
+          "idle": "Inactief",
+          "observing_3p": "Observeren",
+          "dwelling": "Pauzeren (0 A)",
+          "resuming": "Hervatten",
+          "complete": "Gelukt",
+          "aborted": "Afgebroken"
+        }
       },
       "phase_recovery_remaining": {
         "name": "Fase-herstel resterend"
@@ -231,6 +247,16 @@
         "1": "1-fase (1P)",
         "3": "3-fase (3P)"
       }
+    }
+  },
+  "issues": {
+    "unreachable": {
+      "title": "Unite-lader onbereikbaar",
+      "description": "De lader antwoordt al meerdere polls achter elkaar niet. Controleer stroom en netwerk en herlaad daarna de integratie. Deze melding verdwijnt vanzelf zodra er weer contact is."
+    },
+    "fix_failed": {
+      "title": "Faseherstel blijft mislukken",
+      "description": "Het faseherstel is deze sessie twee keer uitgevoerd maar de auto blijft op de verkeerde fasen hangen. Download de diagnose (apparaatpagina, drie puntjes) en deel het bestand op het forum."
     }
   }
 }

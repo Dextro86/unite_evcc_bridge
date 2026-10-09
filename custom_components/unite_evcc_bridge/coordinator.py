@@ -11,7 +11,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.const import CONF_HOST
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .control import is_three_phase_install, phase_mismatch, should_restore_phase_config
+from . import control as ctrl
+from .control import (
+    is_three_phase_install,
+    phase_mismatch,
+    phase_mismatch_down,
+    should_restore_phase_config,
+)
 from .const import (
     CONF_GRID_PHASES,
     CONF_PHASE_RESTORE_DELAY,
@@ -30,7 +36,13 @@ from .const import (
 )
 from homeassistant.helpers.storage import Store
 from .eventlog import EventLog
-from .rest_client import UnitePhpRestClient, UniteRestError, async_restore_three_phase, async_set_lockable_cable
+from .rest_client import (
+    UnitePhpRestClient,
+    UniteRestError,
+    async_read_config_fields,
+    async_restore_three_phase,
+    async_set_lockable_cable,
+)
 from .modbus import WebastoBridgeClient
 from .models import ChargerSnapshot, normalize_current_a
 from .phase import (
@@ -100,10 +112,15 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
         # Lockable-cable installation setting (web UI). None = unknown
         # (no web UI login, or the firmware lacks the setting).
         self.lockable_cable: bool | None = None
+        # JSON config field inventory (setup, best effort). None = unknown,
+        # keep try-JSON-then-webconfig; a set lacking a key skips the doomed
+        # JSON attempt and goes straight to webconfig.
+        self.json_config_fields: set[str] | None = None
         self._command_lock = asyncio.Lock()
         self._recovery_task: asyncio.Task[None] | None = None
         self._recovery_attempted = False
         self._downshift_attempted = False  # latch: one escalation per 1P request
+        self._recovery_direction: str | None = None  # "up"/"down" of last attempt
         self._guard_mismatches = 0  # trede 1: consecutive wish-vs-405 polls
         self._recovery_deadline: float | None = None
         self._buffer_commands = False
@@ -124,10 +141,67 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
         self.device_firmware_version: str | None = None
         # Diagnostics-only event ring buffer (never read back for control).
         self.event_log = EventLog()
+        # Repair-issue counters (support UX, no control behaviour).
+        self._failed_polls: int = 0
+        self._session_fix_failures: int = 0
 
     def record_event(self, kind: str, detail: str) -> None:
         """Append a diagnostics-only event to the in-memory ring buffer."""
         self.event_log.record(kind, detail)
+
+    async def _raise_repair(
+        self, issue_id: str, translation_key: str, severity: str = "warning"
+    ) -> None:
+        """Show a Repairs issue (best effort; never affects control)."""
+        try:
+            from homeassistant.components import repairs as repairs_mod
+
+            level = getattr(repairs_mod.IssueSeverity, severity.upper(), None)
+            repairs_mod.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"{self.entry.entry_id}_{issue_id}",
+                is_fixable=False,
+                severity=level,
+                translation_key=translation_key,
+            )
+        except Exception as err:  # noqa: BLE001 - support UX only
+            _LOGGER.debug("Could not raise repair issue %s: %s", issue_id, err)
+
+    async def _clear_repair(self, issue_id: str) -> None:
+        try:
+            from homeassistant.components import repairs as repairs_mod
+
+            repairs_mod.async_delete_issue(
+                self.hass, DOMAIN, f"{self.entry.entry_id}_{issue_id}"
+            )
+        except Exception as err:  # noqa: BLE001 - support UX only
+            _LOGGER.debug("Could not clear repair issue %s: %s", issue_id, err)
+
+    def note_fix_escalated(self) -> None:
+        """Count fix escalations this session; repair at two (pattern, not pech)."""
+        self._session_fix_failures += 1
+        if self._session_fix_failures >= 2:
+            self.hass.async_create_task(
+                self._raise_repair("fix_failed", "fix_failed")
+            )
+
+    def reset_fix_failures(self) -> None:
+        if self._session_fix_failures:
+            self.hass.async_create_task(self._clear_repair("fix_failed"))
+        self._session_fix_failures = 0
+
+    def _note_poll_ok(self) -> None:
+        if self._failed_polls:
+            self.hass.async_create_task(self._clear_repair("unreachable"))
+        self._failed_polls = 0
+
+    def _note_poll_failed(self) -> None:
+        self._failed_polls += 1
+        if self._failed_polls == 5:
+            self.hass.async_create_task(
+                self._raise_repair("unreachable", "unreachable", severity="error")
+            )
 
     async def async_read_device_info(self) -> None:
         """Read static identity once at setup (best effort).
@@ -143,10 +217,12 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
         try:
             await self._async_ensure_connection_ownership()
         except Exception as err:  # noqa: BLE001
+            self._note_poll_failed()
             return ChargerSnapshot(available=False, last_error=str(err))
 
         data = await self.client.read_snapshot()
         if not data.available:
+            self._note_poll_failed()
             return data
 
         if self.requested_phase is None:
@@ -158,6 +234,7 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
             self._recovery_attempted = False
             self._downshift_attempted = False
             self._guard_mismatches = 0
+            self.reset_fix_failures()
         self._maybe_auto_restore_phase(data, just_unplugged)
         # A new session: the wallbox applies its own (minimum) charge current, so
         # put back what evcc actually asked for - 0 A when it wants no charging.
@@ -177,8 +254,10 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
             await write_heartbeat(self.client)
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Heartbeat failed: %s", err)
+            self._note_poll_failed()
             return ChargerSnapshot(available=False, last_error=str(err))
 
+        self._note_poll_ok()
         return data
 
     def _maybe_auto_restore_phase(self, data: ChargerSnapshot, just_unplugged: bool) -> None:
@@ -236,6 +315,7 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
                 host,
                 o.get(CONF_REST_USERNAME, DEFAULT_REST_USERNAME),
                 o.get(CONF_REST_PASSWORD, ""),
+                known_fields=self.json_config_fields,
             )
         except UniteRestError as err:
             _LOGGER.warning(
@@ -364,6 +444,21 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
             o.get(CONF_REST_PASSWORD, ""),
         )
 
+    async def async_read_config_fields_once(self) -> None:
+        """Inventory the JSON config fields once (best effort, never fails setup)."""
+        o = self.entry.options
+        if not o.get(CONF_REST_ENABLED, DEFAULT_REST_ENABLED):
+            return
+        try:
+            self.json_config_fields = await async_read_config_fields(
+                async_get_clientsession(self.hass),
+                o.get(CONF_HOST, self.entry.data.get(CONF_HOST, "")),
+                o.get(CONF_REST_USERNAME, DEFAULT_REST_USERNAME),
+                o.get(CONF_REST_PASSWORD, ""),
+            )
+        except Exception as err:  # noqa: BLE001 - luxury measurement only
+            _LOGGER.debug("Could not inventory JSON config fields: %s", err)
+
     async def async_refresh_lockable_cable(self) -> None:
         """Read the lockable-cable installation setting (best effort)."""
         client = self._webconfig_client()
@@ -394,6 +489,7 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
             o.get(CONF_REST_USERNAME, DEFAULT_REST_USERNAME),
             o.get(CONF_REST_PASSWORD, ""),
             enabled,
+            known_fields=self.json_config_fields,
         )
         value: bool | None = None
         php = self._webconfig_client()
@@ -448,6 +544,11 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
             _RECOVERY_RESUMING,
         }
 
+    @property
+    def recovery_direction(self) -> str | None:
+        """"up" (1->3), "down" (3->1) or None when no attempt ran yet."""
+        return self._recovery_direction
+
     def mark_rest_restart(self, seconds: int) -> None:
         self.rest_restart_until = time.monotonic() + seconds
         self.async_update_listeners()
@@ -461,7 +562,24 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
     def phase_mismatch(self, data: ChargerSnapshot | None = None) -> bool:
         snapshot = data if data is not None else self.data
         requested_3p = self._phase_explicitly_requested and self.requested_phase == "3"
-        return bool(snapshot and snapshot.available and phase_mismatch(snapshot, requested_3p))
+        requested_1p = self._phase_explicitly_requested and self.requested_phase == "1"
+        return bool(
+            snapshot
+            and snapshot.available
+            and (
+                phase_mismatch(snapshot, requested_3p)
+                or phase_mismatch_down(snapshot, requested_1p)
+            )
+        )
+
+    def mismatch_direction(self, data: ChargerSnapshot | None = None) -> str | None:
+        """"up" (stuck on 1), "down" (stuck on 3) or None when converged."""
+        snapshot = data if data is not None else self.data
+        if not snapshot or not snapshot.available:
+            return None
+        requested_3p = self._phase_explicitly_requested and self.requested_phase == "3"
+        requested_1p = self._phase_explicitly_requested and self.requested_phase == "1"
+        return ctrl.mismatch_direction(snapshot, requested_3p, requested_1p)
 
     async def async_reassert_current(self, reason: str = "web-UI action", *, refresh: bool = True) -> None:
         """Re-write the charge current the controller last asked for.

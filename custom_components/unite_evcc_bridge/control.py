@@ -106,6 +106,32 @@ def phase_mismatch(data: ChargerSnapshot, requested_3p: bool) -> bool:
     )
 
 
+def phase_mismatch_down(data: ChargerSnapshot, requested_1p: bool) -> bool:
+    """True when 1-phase was actively requested but the car still draws all 3.
+
+    Mirror of phase_mismatch. Inherently safe against 1-phase cars: a car
+    that cannot draw 3 phases can never trip this gate.
+    """
+    if not requested_1p or data.charging_state != 1:
+        return False
+    return (
+        (data.current_l1_a or 0.0) >= 3.0
+        and (data.current_l2_a or 0.0) >= 3.0
+        and (data.current_l3_a or 0.0) >= 3.0
+    )
+
+
+def mismatch_direction(
+    data: ChargerSnapshot, requested_3p: bool, requested_1p: bool
+) -> str | None:
+    """"up" (stuck on 1), "down" (stuck on 3) or None when converged."""
+    if phase_mismatch(data, requested_3p):
+        return "up"
+    if phase_mismatch_down(data, requested_1p):
+        return "down"
+    return None
+
+
 @dataclass
 class RfidProbe:
     """Remembers whether the charger serves the optional RFID registers.

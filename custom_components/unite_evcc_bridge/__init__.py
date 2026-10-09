@@ -80,6 +80,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Read static identity (serial + firmware) once at setup, best effort.
     await coordinator.async_read_device_info()
 
+    # Inventory the JSON config fields once (best effort): known keys let
+    # config writes skip a doomed JSON attempt and go straight to webconfig.
+    try:
+        await coordinator.async_read_config_fields_once()
+    except Exception:  # noqa: BLE001 - luxury measurement, never fails setup
+        pass
+
     await _async_maybe_repair_unique_id(hass, entry, coordinator)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator

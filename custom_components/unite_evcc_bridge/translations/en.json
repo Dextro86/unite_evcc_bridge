@@ -84,13 +84,29 @@
         "name": "Hardware current limit"
       },
       "register_404": {
-        "name": "Phase capability (404)"
+        "name": "Phase capability (404)",
+        "state": {
+          "1_phase": "1 phase",
+          "3_phases": "3 phases"
+        }
       },
       "register_405": {
-        "name": "Phase selection (405)"
+        "name": "Phase selection (405)",
+        "state": {
+          "1_phase": "1 phase",
+          "3_phases": "3 phases"
+        }
       },
       "phase_recovery_status": {
-        "name": "Phase recovery status"
+        "name": "Phase recovery status",
+        "state": {
+          "idle": "Idle",
+          "observing_3p": "Observing",
+          "dwelling": "Pausing (0 A)",
+          "resuming": "Resuming",
+          "complete": "Complete",
+          "aborted": "Aborted"
+        }
       },
       "phase_recovery_remaining": {
         "name": "Phase recovery remaining"
@@ -231,6 +247,16 @@
         "1": "Single-phase (1P)",
         "3": "Three-phase (3P)"
       }
+    }
+  },
+  "issues": {
+    "unreachable": {
+      "title": "Unite charger unreachable",
+      "description": "The charger has not answered several polls in a row. Check power and network, then reload the integration. This message clears itself when contact returns."
+    },
+    "fix_failed": {
+      "title": "Phase fix keeps failing",
+      "description": "The phase fix ran twice this session but the car stays on the wrong phases. Download diagnostics (device page, three dots) and share the bundle on the forum."
     }
   }
 }

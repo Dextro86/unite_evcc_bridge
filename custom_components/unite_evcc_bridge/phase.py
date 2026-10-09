@@ -77,6 +77,7 @@ class PhaseRecoveryMixin:
 
         self._recovery_task = self.hass.async_create_task(self._run_phase_recovery())
         self.record_event("recovery_attempt", "phase recovery started")
+        self.note_fix_escalated()
 
     async def _guard_phase_setting(self, data: ChargerSnapshot) -> None:
         """Trede 1: keep register 405 converged with evcc's wish, mid-session.
@@ -135,9 +136,11 @@ class PhaseRecoveryMixin:
             self._run_phase_recovery(direction="down")
         )
         self.record_event("recovery_attempt", "phase downshift started")
+        self.note_fix_escalated()
 
     async def _run_phase_recovery(self, direction: str = "up") -> None:
         down = direction == "down"
+        self._recovery_direction = direction
         try:
             self._set_recovery_status(_RECOVERY_OBSERVING, self.phase_recovery_observe)
             await self._countdown(self.phase_recovery_observe)

@@ -171,3 +171,67 @@ def test_guardian_quiet_when_converged_or_wish_unknown(monkeypatch) -> None:
     for _ in range(5):
         _update(coord, monkeypatch)
     assert client.writes == []
+
+
+# --- repairs: escalation counting + poll tracking ---------------------------
+class _RepairHass(FakeHass):
+    def __init__(self):
+        self.tasks = []
+
+    def async_create_task(self, coro):
+        task = asyncio.ensure_future(coro)
+        self.tasks.append(task)
+        return task
+
+
+def _repair_coordinator(client):
+    hass = _RepairHass()
+    entry = SimpleNamespace(entry_id="test", options={}, data={"host": "192.0.2.1"})
+    coord = WebastoEvccCoordinator(
+        hass,
+        entry=entry,
+        client=client,
+        poll_interval=10,
+        max_current=16,
+        failsafe_current=6,
+        failsafe_timeout=30,
+        phase_recovery_enabled=True,
+        phase_recovery_observe=0,
+        phase_recovery_dwell=0,
+    )
+    return coord, hass
+
+
+def test_two_escalations_schedule_repair():
+    async def main():
+        client = FakeClient()
+        coord, hass = _repair_coordinator(client)
+        coord.note_fix_escalated()
+        assert coord._session_fix_failures == 1
+        assert hass.tasks == []
+        coord.note_fix_escalated()
+        assert coord._session_fix_failures == 2
+        for task in hass.tasks:
+            await task  # repairs backend missing in tests: swallowed, must not crash
+        coord.reset_fix_failures()
+        assert coord._session_fix_failures == 0
+        return len(hass.tasks)
+
+    assert asyncio.run(main()) >= 1
+
+
+def test_five_failed_polls_schedule_unreachable_repair():
+    async def main():
+        client = FakeClient()
+        coord, hass = _repair_coordinator(client)
+        for _ in range(4):
+            coord._note_poll_failed()
+        assert hass.tasks == []
+        coord._note_poll_failed()
+        for task in hass.tasks:
+            await task
+        coord._note_poll_ok()
+        assert coord._failed_polls == 0
+        return len(hass.tasks)
+
+    assert asyncio.run(main()) >= 1

@@ -160,13 +160,21 @@ SENSORS: tuple[BridgeSensorDescription, ...] = (
         key="register_404",
         translation_key="register_404",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator, data: data.phase_capability_raw,
+        value_fn=lambda coordinator, data: (
+            None
+            if data.phase_capability_raw is None
+            else ("1_phase" if data.phase_capability_raw == 0 else "3_phases")
+        ),
     ),
     BridgeSensorDescription(
         key="register_405",
         translation_key="register_405",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator, data: data.phase_mode_raw,
+        value_fn=lambda coordinator, data: (
+            None
+            if data.phase_mode_raw is None
+            else ("1_phase" if data.phase_mode_raw == 0 else "3_phases")
+        ),
     ),
     # RFID tag of the running session. Empty when charging freely, absent on
     # firmware older than spec v1.9. Useful for per-session billing and for evcc
@@ -182,6 +190,11 @@ SENSORS: tuple[BridgeSensorDescription, ...] = (
         translation_key="phase_recovery_status",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator, data: coordinator.recovery_status,
+        attr_fn=lambda coordinator, data: {
+            "direction": coordinator.recovery_direction,
+            "recovery_enabled": coordinator.phase_recovery_enabled,
+            "requested_phase": coordinator.requested_phase,
+        },
     ),
     BridgeSensorDescription(
         key="phase_recovery_remaining",

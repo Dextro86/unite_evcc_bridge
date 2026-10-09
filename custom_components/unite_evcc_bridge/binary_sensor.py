@@ -75,9 +75,13 @@ class UniteEvccPhaseMismatchSensor(WebastoEvccEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        # Routed through the coordinator so the "3-phase actually requested" gate
-        # is applied (a resting 405=3 on a 1-phase car is not a mismatch).
+        # Routed through the coordinator so the explicit-request gates are
+        # applied (a resting 405=3 on a 1-phase car is not a mismatch).
         return self.coordinator.phase_mismatch()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return {"direction": self.coordinator.mismatch_direction()}
 
 
 class UniteEvccCableLockedSensor(WebastoEvccEntity, BinarySensorEntity):

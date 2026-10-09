@@ -54,7 +54,7 @@ def test_eventlog_phase_events_survive_system_flood() -> None:
 
 # --- integration version (diagnostics content) ------------------------------
 def test_integration_version_reads_manifest() -> None:
-    assert integration_version() == "0.2.2-beta.1"
+    assert integration_version() == "0.2.2-beta.2"
 
 
 # --- firmware register + tolerant decoding ----------------------------------
