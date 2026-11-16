@@ -125,6 +125,9 @@
       "connection": {
         "name": "Connection"
       },
+      "evcc_connection": {
+        "name": "evcc connection"
+      },
       "cable_locked": {
         "name": "Plug locked"
       },
@@ -166,6 +169,7 @@
         "menu_options": {
           "charge": "Charging",
           "advanced": "Advanced",
+          "watchdog": "evcc watchdog",
           "reboot": "Web UI",
           "save": "Save & close",
           "connection": "Connection"
@@ -207,6 +211,22 @@
           "phase_restore_delay": "Lets the charger finish the session. Plugging back in within this time cancels the restore. Normally 5 s."
         }
       },
+      "watchdog": {
+        "title": "evcc watchdog",
+        "description": "Optional, off by default. The charger's own backup only kicks in when Home Assistant stops talking to it. If evcc itself stops — crash, container down, network — Home Assistant keeps the charger alive at evcc's last setting. This closes that gap. {status}",
+        "data": {
+          "evcc_watchdog_mode": "Watch evcc via",
+          "evcc_api_url": "evcc address",
+          "evcc_mqtt_topic": "MQTT topic",
+          "evcc_watchdog_timeout": "Silent time before fallback"
+        },
+        "data_description": {
+          "evcc_watchdog_mode": "Off, evcc web API or MQTT. The API needs no login; only a JSON answer counts, so another web server on that address can't pass for evcc. MQTT needs mqtt: in evcc and Home Assistant's MQTT integration on the same broker.",
+          "evcc_api_url": "For the API, e.g. 192.168.1.20:7070 (checked when you save). Use the IP if Home Assistant can't resolve the container name.",
+          "evcc_mqtt_topic": "For MQTT, normally evcc/updated. Any live message counts; retained replays don't. Check with mosquitto_sub -v -t 'evcc/updated': it should tick every evcc interval.",
+          "evcc_watchdog_timeout": "No sign of life for this long caps charging at the backup current (Advanced screen, normally 6 A; 0 A stops). evcc's wish is kept and restored when it's back. Keep well above evcc's interval. Minimum 60 s."
+        }
+      },
       "reboot": {
         "title": "Web UI",
         "description": "Logs in to the charger's web interface. This adds a Restart button — only use it when the charger is stuck, it stops an ongoing charging session. The login is also required for \"Restore for Unite bug\" on the Charging screen.",
@@ -238,6 +258,8 @@
     "error": {
       "invalid_auth": "Invalid web UI username or password.",
       "rest_cannot_connect": "Cannot reach the charger's web UI. Check the IP address and web UI credentials.",
+      "evcc_unreachable": "That address does not answer like evcc. Check the address and port; the reason is shown above.",
+      "mqtt_no_topic": "Enter the MQTT topic evcc publishes, normally evcc/updated.",
       "unknown": "Unexpected error while connecting."
     }
   },
@@ -246,6 +268,13 @@
       "options": {
         "1": "Single-phase (1P)",
         "3": "Three-phase (3P)"
+      }
+    },
+    "evcc_watchdog_mode": {
+      "options": {
+        "off": "Off",
+        "api": "evcc web API",
+        "mqtt": "MQTT"
       }
     }
   },
@@ -257,6 +286,10 @@
     "fix_failed": {
       "title": "Phase fix keeps failing",
       "description": "The phase fix ran twice this session but the car stays on the wrong phases. Download diagnostics (device page, three dots) and share the bundle on the forum."
+    },
+    "evcc_lost": {
+      "title": "evcc is silent — charging capped",
+      "description": "No sign of life from evcc, so charging is capped at the backup current. Check that evcc is running and reachable; this clears itself when evcc is back."
     }
   }
 }

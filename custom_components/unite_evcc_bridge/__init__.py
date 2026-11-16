@@ -5,6 +5,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import EVENT_HOMEASSISTANT_STOP, HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
 from .const import (
@@ -88,6 +89,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         pass
 
     await _async_maybe_repair_unique_id(hass, entry, coordinator)
+
+    # Opt-in evcc watchdog (off by default): never fails setup.
+    try:
+        await coordinator.async_start_evcc_watchdog(async_get_clientsession(hass))
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Could not start the evcc watchdog", exc_info=True)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

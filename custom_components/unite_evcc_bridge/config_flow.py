@@ -13,6 +13,16 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_EVCC_API_URL,
+    CONF_EVCC_MQTT_TOPIC,
+    CONF_EVCC_WATCHDOG_MODE,
+    CONF_EVCC_WATCHDOG_TIMEOUT,
+    DEFAULT_EVCC_API_URL,
+    DEFAULT_EVCC_MQTT_TOPIC,
+    DEFAULT_EVCC_WATCHDOG_MODE,
+    DEFAULT_EVCC_WATCHDOG_TIMEOUT_S,
+    MAX_EVCC_WATCHDOG_TIMEOUT_S,
+    MIN_EVCC_WATCHDOG_TIMEOUT_S,
     CONF_FAILSAFE_CURRENT,
     CONF_FAILSAFE_TIMEOUT,
     CONF_GRID_PHASES,
@@ -50,6 +60,13 @@ from .const import (
     MAX_POLL_INTERVAL,
     MIN_POLL_INTERVAL,
 )
+from .evcc_watchdog import (
+    WATCHDOG_API,
+    WATCHDOG_MQTT,
+    EvccApiError,
+    EvccWatchdog,
+    async_probe_evcc_api,
+)
 from .modbus import ModbusError, WebastoBridgeClient
 from .registers import CHARGING_STATE, SERIAL_NUMBER
 from .rest_client import UniteRestAuthError, UniteRestError, async_build_rest_client
@@ -85,6 +102,16 @@ def _grid_phases_selector() -> selector.SelectSelector:
         selector.SelectSelectorConfig(
             options=list(GRID_PHASES),
             translation_key="grid_phases",
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
+def _evcc_watchdog_mode_selector() -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=["off", "api", "mqtt"],
+            translation_key="evcc_watchdog_mode",
             mode=selector.SelectSelectorMode.DROPDOWN,
         )
     )
@@ -189,7 +216,7 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
             step_id="init",
-            menu_options=["connection", "charge", "advanced", "reboot", "save"],
+            menu_options=["connection", "charge", "advanced", "watchdog", "reboot", "save"],
         )
 
     async def async_step_save(self, user_input: dict[str, Any] | None = None):
@@ -273,6 +300,62 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
             data_schema=self.add_suggested_values_to_schema(schema, self._suggested_options()),
         )
 
+    def _watchdog_status(self) -> str:
+        """Live status line for the top of the watchdog screen."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        watchdog: EvccWatchdog | None = getattr(coordinator, "evcc_watchdog", None)
+        if watchdog is None:
+            return "Currently off."
+        return watchdog.status_line()
+
+    async def async_step_watchdog(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        status = self._watchdog_status()
+        if user_input is not None:
+            mode = user_input.get(CONF_EVCC_WATCHDOG_MODE, DEFAULT_EVCC_WATCHDOG_MODE)
+            if mode == WATCHDOG_API:
+                try:
+                    await async_probe_evcc_api(
+                        async_get_clientsession(self.hass),
+                        user_input.get(CONF_EVCC_API_URL, ""),
+                    )
+                except EvccApiError as err:
+                    errors["base"] = "evcc_unreachable"
+                    status = f"Last check failed: {err}."
+                except Exception:  # noqa: BLE001
+                    errors["base"] = "unknown"
+            elif mode == WATCHDOG_MQTT and not (user_input.get(CONF_EVCC_MQTT_TOPIC) or "").strip():
+                errors["base"] = "mqtt_no_topic"
+            if not errors:
+                self.options.update(user_input)
+                return await self.async_step_init()
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_EVCC_WATCHDOG_MODE, default=DEFAULT_EVCC_WATCHDOG_MODE): (
+                    _evcc_watchdog_mode_selector()
+                ),
+                vol.Required(CONF_EVCC_API_URL, default=DEFAULT_EVCC_API_URL): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+                vol.Required(CONF_EVCC_MQTT_TOPIC, default=DEFAULT_EVCC_MQTT_TOPIC): (
+                    selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                    )
+                ),
+                vol.Required(
+                    CONF_EVCC_WATCHDOG_TIMEOUT, default=DEFAULT_EVCC_WATCHDOG_TIMEOUT_S
+                ): _num(
+                    MIN_EVCC_WATCHDOG_TIMEOUT_S, MAX_EVCC_WATCHDOG_TIMEOUT_S, 1, "s"
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="watchdog",
+            data_schema=self.add_suggested_values_to_schema(schema, self._suggested_options()),
+            errors=errors,
+            description_placeholders={"status": status},
+        )
+
     async def async_step_reboot(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -327,6 +410,10 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
             ),
             CONF_FAILSAFE_CURRENT: DEFAULT_FAILSAFE_CURRENT_A,
             CONF_FAILSAFE_TIMEOUT: DEFAULT_FAILSAFE_TIMEOUT_S,
+            CONF_EVCC_WATCHDOG_MODE: DEFAULT_EVCC_WATCHDOG_MODE,
+            CONF_EVCC_API_URL: DEFAULT_EVCC_API_URL,
+            CONF_EVCC_MQTT_TOPIC: DEFAULT_EVCC_MQTT_TOPIC,
+            CONF_EVCC_WATCHDOG_TIMEOUT: DEFAULT_EVCC_WATCHDOG_TIMEOUT_S,
             CONF_PHASE_RECOVERY_ENABLED: DEFAULT_PHASE_RECOVERY_ENABLED,
             CONF_PHASE_RECOVERY_OBSERVE: DEFAULT_PHASE_RECOVERY_OBSERVE_S,
             CONF_PHASE_RECOVERY_DWELL: DEFAULT_PHASE_RECOVERY_DWELL_S,

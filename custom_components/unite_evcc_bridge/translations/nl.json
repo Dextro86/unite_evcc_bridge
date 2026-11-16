@@ -125,6 +125,9 @@
       "connection": {
         "name": "Verbinding"
       },
+      "evcc_connection": {
+        "name": "evcc-verbinding"
+      },
       "cable_locked": {
         "name": "Stekker vast"
       },
@@ -166,6 +169,7 @@
         "menu_options": {
           "charge": "Laden",
           "advanced": "Geavanceerd",
+          "watchdog": "evcc-watchdog",
           "reboot": "Web-UI",
           "save": "Opslaan en sluiten",
           "connection": "Verbinding"
@@ -207,6 +211,22 @@
           "phase_restore_delay": "Laat de lader de sessie afronden. Binnen deze tijd weer insteken annuleert het herstel. Normaal 5 s."
         }
       },
+      "watchdog": {
+        "title": "evcc-watchdog",
+        "description": "Optioneel, standaard uit. De eigen noodstroom van de lader grijpt alleen in als Home Assistant er het zwijgen toe doet. Als evcc zelf stilvalt — crash, container uit, netwerk — houdt Home Assistant de lader juist in leven op de laatste stand van evcc. Dit dicht dat gat. {status}",
+        "data": {
+          "evcc_watchdog_mode": "evcc bewaken via",
+          "evcc_api_url": "evcc-adres",
+          "evcc_mqtt_topic": "MQTT-topic",
+          "evcc_watchdog_timeout": "Stilte-duur voor terugval"
+        },
+        "data_description": {
+          "evcc_watchdog_mode": "Uit, evcc-web-API of MQTT. De API heeft geen login nodig; alleen een JSON-antwoord telt, dus een andere webserver op dat adres kan niet voor evcc doorgaan. MQTT vereist mqtt: in evcc en de MQTT-integratie van Home Assistant op dezelfde broker.",
+          "evcc_api_url": "Voor de API, bijv. 192.168.1.20:7070 (gecontroleerd bij opslaan). Gebruik het IP-adres als Home Assistant de containernaam niet kent.",
+          "evcc_mqtt_topic": "Voor MQTT normaal evcc/updated. Elk live bericht telt; herhaalde retained-berichten niet. Controleer met mosquitto_sub -v -t 'evcc/updated': elke evcc-ronde hoort een bericht te geven.",
+          "evcc_watchdog_timeout": "Zolang geen levensteken begrenst het laden op de noodstroom (Geavanceerd-scherm, normaal 6A; 0A stopt). De wens van evcc blijft bewaard en komt terug als evcc er weer is. Houd ruim boven het evcc-interval. Minimaal 60 s."
+        }
+      },
       "reboot": {
         "title": "Web-UI",
         "description": "Logt in op de webomgeving van de lader. Dit voegt een Herstart-knop toe — alleen gebruiken als de lader vastzit, een lopende laadsessie stopt ermee. De login is ook nodig voor \"Herstel voor Unite-bug\" op het Laden-scherm.",
@@ -238,6 +258,8 @@
     "error": {
       "invalid_auth": "Ongeldige web-UI gebruikersnaam of wachtwoord.",
       "rest_cannot_connect": "Kan de web-UI van de lader niet bereiken. Controleer het IP-adres en de web-UI gegevens.",
+      "evcc_unreachable": "Dat adres antwoordt niet als evcc. Controleer adres en poort; de reden staat hierboven.",
+      "mqtt_no_topic": "Vul het MQTT-topic in waarop evcc publiceert, normaal evcc/updated.",
       "unknown": "Onverwachte fout bij het verbinden."
     }
   },
@@ -246,6 +268,13 @@
       "options": {
         "1": "1-fase (1P)",
         "3": "3-fase (3P)"
+      }
+    },
+    "evcc_watchdog_mode": {
+      "options": {
+        "off": "Uit",
+        "api": "evcc-web-API",
+        "mqtt": "MQTT"
       }
     }
   },
@@ -257,6 +286,10 @@
     "fix_failed": {
       "title": "Faseherstel blijft mislukken",
       "description": "Het faseherstel is deze sessie twee keer uitgevoerd maar de auto blijft op de verkeerde fasen hangen. Download de diagnose (apparaatpagina, drie puntjes) en deel het bestand op het forum."
+    },
+    "evcc_lost": {
+      "title": "evcc is stil — laden begrensd",
+      "description": "Geen levensteken van evcc, dus het laden is begrensd op de noodstroom. Controleer of evcc draait en bereikbaar is; zodra evcc terug is verdwijnt dit vanzelf."
     }
   }
 }

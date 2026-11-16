@@ -59,6 +59,9 @@ class PhaseRecoveryMixin:
     _pending_current: int | None
     _pending_enabled: bool | None
 
+    # Provided by the coordinator; declared so checkers see the mixin's host.
+    def cap_current(self, current: int) -> int: ...
+
     def _maybe_start_phase_recovery(self) -> None:
         if (
             not self.phase_recovery_enabled
@@ -190,8 +193,10 @@ class PhaseRecoveryMixin:
                 current = 0
             if current is None:
                 current = self.resume_current
+            # While evcc is lost the resume must respect the cap, like every
+            # other current write.
             async with self._command_lock:
-                await self.client.write(CURRENT_LIMIT, current)
+                await self.client.write(CURRENT_LIMIT, self.cap_current(current))
             _LOGGER.info(
                 "%s phase recovery: resumed with %sA",
                 "3->1" if down else "1->3",

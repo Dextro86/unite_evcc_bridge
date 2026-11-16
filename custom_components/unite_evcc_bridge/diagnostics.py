@@ -73,6 +73,19 @@ async def async_get_config_entry_diagnostics(
             "result": coordinator.last_recovery_result,
             "reason": coordinator.last_recovery_reason,
         }
+        watchdog = coordinator.evcc_watchdog
+        diagnostics["evcc_watchdog"] = (
+            None
+            if watchdog is None
+            else {
+                "mode": watchdog.mode,
+                "source": watchdog.source,
+                "timeout_s": watchdog.timeout_s,
+                "throttled": coordinator.evcc_throttled,
+                "seconds_since_seen": round(watchdog.seconds_since_seen(), 1),
+                "last_error": watchdog.last_error,
+            }
+        )
         diagnostics["last_restart"] = {
             "at": _iso(coordinator.last_rest_restart_at),
             "result": coordinator.last_rest_restart_result,

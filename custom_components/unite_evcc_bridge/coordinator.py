@@ -25,6 +25,14 @@ from .const import (
     CONF_REST_ENABLED,
     CONF_REST_PASSWORD,
     CONF_REST_USERNAME,
+    CONF_EVCC_API_URL,
+    CONF_EVCC_MQTT_TOPIC,
+    CONF_EVCC_WATCHDOG_MODE,
+    CONF_EVCC_WATCHDOG_TIMEOUT,
+    DEFAULT_EVCC_API_URL,
+    DEFAULT_EVCC_MQTT_TOPIC,
+    DEFAULT_EVCC_WATCHDOG_MODE,
+    DEFAULT_EVCC_WATCHDOG_TIMEOUT_S,
     DEFAULT_PHASE_RESTORE_DELAY_S,
     DEFAULT_PHASE_RESTORE_ON_UNPLUG,
     DEFAULT_REST_ENABLED,
@@ -36,6 +44,7 @@ from .const import (
 )
 from homeassistant.helpers.storage import Store
 from .eventlog import EventLog
+from .evcc_watchdog import TRANSITION_LOST, TRANSITION_RECOVERED, EvccWatchdog, WATCHDOG_OFF
 from .rest_client import (
     UnitePhpRestClient,
     UniteRestError,
@@ -106,6 +115,11 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
         self._phase_explicitly_requested: bool = False
         self.current_intent: int | None = None
         self.enabled_intent: bool | None = None
+        # evcc watchdog (optional): while evcc shows no sign of life, every
+        # current write is capped at the failsafe current. evcc's intent is
+        # kept untouched, so it can be put back when evcc returns.
+        self.evcc_watchdog: EvccWatchdog | None = None
+        self._evcc_throttled = False
         self.recovery_status = _RECOVERY_IDLE
         self.recovery_remaining_s = 0
         self._initialized_connection_epoch = 0
@@ -214,11 +228,20 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
         self.device_firmware_version = await self.client.read_optional_string_once(FIRMWARE_VERSION)
 
     async def _async_update_data(self) -> ChargerSnapshot:
+        # Evaluated first, so a reconnect in this same poll already programs
+        # the capped current instead of evcc's last (possibly full) setpoint.
+        evcc_transition = self._evaluate_evcc_watchdog()
         try:
             await self._async_ensure_connection_ownership()
         except Exception as err:  # noqa: BLE001
             self._note_poll_failed()
             return ChargerSnapshot(available=False, last_error=str(err))
+
+        if evcc_transition is not None:
+            try:
+                await self._async_apply_evcc_transition(evcc_transition)
+            except Exception as err:  # noqa: BLE001 - heartbeat must still go out
+                _LOGGER.warning("Could not apply evcc watchdog change: %s", err)
 
         data = await self.client.read_snapshot()
         if not data.available:
@@ -344,11 +367,7 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
             "reconnect", f"connection epoch {self.client.stats.connection_epoch}"
         )
 
-        current = self.current_intent
-        if self._buffer_commands or self.enabled_intent is False:
-            current = 0
-        if current is None:
-            current = 0
+        current = self._commanded_current()
 
         # Capture the pre-integration register values once, before our first
         # write. Stored durably, so a restart never mistakes our own values
@@ -427,6 +446,11 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
 
     async def async_shutdown(self) -> None:
         self._cancel_recovery()
+        if self.evcc_watchdog is not None:
+            try:
+                await self.evcc_watchdog.async_stop()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Could not stop the evcc watchdog", exc_info=True)
         try:
             await self.async_restore_baseline_on_exit()
         except Exception:  # noqa: BLE001 - shutdown must still close the client
@@ -590,13 +614,9 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
         evcc will not necessarily re-send its value, so without this a car can
         charge while evcc has asked for nothing.
         """
-        current = self.current_intent
-        if self._buffer_commands or self.enabled_intent is False:
-            current = 0
-        if current is None:
-            # evcc has not commanded anything yet: hold 0 A, never resume_current.
-            # A fresh session must not start charging before evcc has an intent.
-            current = 0
+        # No intent yet -> 0 A, never resume_current: a fresh session must not
+        # start charging before evcc has asked for it.
+        current = self._commanded_current()
         async with self._command_lock:
             await self.client.write(CURRENT_LIMIT, current)
         _LOGGER.info("Re-asserted charge current after %s: %sA", reason, current)
@@ -604,6 +624,7 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
             await self.async_request_refresh()
 
     async def async_set_current(self, value: float) -> None:
+        self._note_evcc_command()
         requested = normalize_current_a(value, self.max_current)
         if requested > 0:
             self.resume_current = requested
@@ -619,10 +640,11 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
                 await self.async_request_refresh()
             return
         async with self._command_lock:
-            await self.client.write(CURRENT_LIMIT, requested)
+            await self.client.write(CURRENT_LIMIT, self.cap_current(requested))
         await self.async_request_refresh()
 
     async def async_set_enabled(self, enabled: bool) -> None:
+        self._note_evcc_command()
         self.enabled_intent = enabled
         if self._buffer_commands:
             self._pending_enabled = enabled
@@ -641,6 +663,7 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
     async def async_set_phase(self, option: str) -> None:
         if option not in {"1", "3"}:
             raise ValueError("Phase option must be '1' or '3'")
+        self._note_evcc_command()
         self.requested_phase = option
         self._phase_explicitly_requested = True
         if option == "1":
@@ -665,4 +688,85 @@ class WebastoEvccCoordinator(PhaseRecoveryMixin, DataUpdateCoordinator[ChargerSn
 
     def evcc_enabled(self, data: ChargerSnapshot) -> bool:
         return self.enabled_intent if self.enabled_intent is not None else data.enabled
+
+    # --- evcc watchdog -----------------------------------------------------
+
+    @property
+    def evcc_throttled(self) -> bool:
+        """True while evcc is silent and the current is capped."""
+        return self._evcc_throttled
+
+    def cap_current(self, current: int) -> int:
+        """Limit a current write to the failsafe current while evcc is lost."""
+        if self._evcc_throttled:
+            return min(int(current), int(self.failsafe_current))
+        return int(current)
+
+    def _commanded_current(self) -> int:
+        """The current the charger should get right now (0 A without intent)."""
+        current = self.current_intent
+        if self._buffer_commands or self.enabled_intent is False:
+            current = 0
+        if current is None:
+            current = 0
+        return self.cap_current(current)
+
+    def _note_evcc_command(self) -> None:
+        """A command from evcc proves it is alive and can reach Home Assistant."""
+        if self.evcc_watchdog is not None:
+            self.evcc_watchdog.mark_alive()
+
+    async def async_start_evcc_watchdog(self, session) -> None:
+        """Build and start the watchdog from the entry options (if enabled)."""
+        o = self.entry.options
+        mode = o.get(CONF_EVCC_WATCHDOG_MODE, DEFAULT_EVCC_WATCHDOG_MODE)
+        if mode == WATCHDOG_OFF:
+            return
+        self.evcc_watchdog = EvccWatchdog(
+            self.hass,
+            mode=mode,
+            timeout_s=int(o.get(CONF_EVCC_WATCHDOG_TIMEOUT, DEFAULT_EVCC_WATCHDOG_TIMEOUT_S)),
+            api_url=o.get(CONF_EVCC_API_URL, DEFAULT_EVCC_API_URL),
+            mqtt_topic=o.get(CONF_EVCC_MQTT_TOPIC, DEFAULT_EVCC_MQTT_TOPIC),
+            session=session,
+        )
+        await self.evcc_watchdog.async_start()
+        self.async_update_listeners()
+
+    def _evaluate_evcc_watchdog(self) -> str | None:
+        watchdog = self.evcc_watchdog
+        if watchdog is None:
+            return None
+        transition = watchdog.evaluate()
+        if transition == TRANSITION_LOST:
+            self._evcc_throttled = True
+        elif transition == TRANSITION_RECOVERED:
+            self._evcc_throttled = False
+        return transition
+
+    async def _async_apply_evcc_transition(self, transition: str) -> None:
+        watchdog = self.evcc_watchdog
+        if transition == TRANSITION_LOST:
+            current = self._commanded_current()
+            _LOGGER.warning(
+                "No sign of life from evcc (%s) for %ss; capping charge current at %sA "
+                "until it is back (last error: %s)",
+                watchdog.source if watchdog else "?",
+                watchdog.timeout_s if watchdog else "?",
+                current,
+                watchdog.last_error if watchdog else None,
+            )
+            self.record_event("evcc_lost", f"capped at {current}A")
+            await self._raise_repair("evcc_lost", "evcc_lost")
+            # A recovery pause owns 0 A already; _commanded_current is 0 while
+            # it buffers, so this write can never break the pause.
+            async with self._command_lock:
+                await self.client.write(CURRENT_LIMIT, current)
+        elif transition == TRANSITION_RECOVERED:
+            # evcc does not re-send an unchanged setpoint, so put its last
+            # intent back ourselves instead of waiting for it.
+            _LOGGER.info("evcc is back; restoring its requested charge current")
+            self.record_event("evcc_back", f"restoring {self._commanded_current()}A")
+            await self._clear_repair("evcc_lost")
+            await self.async_reassert_current("evcc came back", refresh=False)
 
